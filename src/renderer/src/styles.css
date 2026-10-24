@@ -11,8 +11,9 @@
   --text-2: #b9bec8;
   --muted: #969eae;
   --accent: #1a9fff;
-  --accent-2: #4cb3ff;
-  --accent-ink: #061827;
+  --accent-2: #0966a8;
+  --accent-fill: #0b74bd;
+  --accent-ink: #ffffff;
   --success: #99c5ac;
   --sky: #1a9fff;
   --amber: #dfbd81;
@@ -275,7 +276,7 @@ nav {
 
 .version.ready {
   color: var(--accent-ink);
-  background: var(--accent);
+  background: var(--accent-fill);
   font-weight: 600;
   padding: 7px 12px;
 }
@@ -414,8 +415,8 @@ nav {
 }
 
 .btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--accent-fill);
+  border-color: var(--accent-fill);
   color: var(--accent-ink);
   font-weight: 600;
 }
@@ -877,8 +878,8 @@ nav {
 }
 
 .toggle.on {
-  border-color: var(--accent);
-  background: var(--accent);
+  border-color: var(--accent-fill);
+  background: var(--accent-fill);
   box-shadow: none;
 }
 
@@ -1739,8 +1740,8 @@ input::placeholder {
 }
 
 .onboarding-steps li.done .step-mark {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--accent-fill);
+  border-color: var(--accent-fill);
   color: var(--accent-ink);
 }
 

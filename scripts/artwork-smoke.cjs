@@ -45,7 +45,7 @@ if (libraryPreview) {
 }
 const preload = path.join(output, 'preload.cjs')
 fs.writeFileSync(preload, `const { contextBridge, ipcRenderer } = require('electron'); contextBridge.exposeInMainWorld('saveme', {
-state: async () => (${JSON.stringify(state)}), updateState: async () => ({status: 'dev', current: '0.1.3'}),
+state: async () => (${JSON.stringify(state)}), updateState: async () => ({status: 'dev', current: '0.1.4'}),
 artwork: id => ipcRenderer.invoke('artwork', id), updateSettings: patch => ipcRenderer.invoke('updateSettings', patch), onState: () => () => {}, onUpdate: () => () => {}, onNavigate: () => () => {}, history: async () => undefined
 });`)
 let win

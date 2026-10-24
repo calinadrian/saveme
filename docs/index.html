@@ -16,7 +16,8 @@
         --text-2: #b9bec8;
         --muted: #969eae;
         --accent: #1a9fff;
-        --accent-ink: #061827;
+        --accent-fill: #0b74bd;
+        --accent-ink: #ffffff;
         --amber: #ffc04d;
         --violet: #b99aff;
         color-scheme: dark;
@@ -45,8 +46,8 @@
       .cta { display: flex; gap: 12px; flex-wrap: wrap; }
       .btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 20px; border-radius: 7px; text-decoration: none; font-weight: 600; border: 1px solid #2f3540; background: var(--surface-2); color: var(--text); }
       .btn:hover { border-color: #454c5a; }
-      .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-      .btn.primary:hover { background: #4cb3ff; }
+      .btn.primary { background: var(--accent-fill); border-color: var(--accent-fill); color: var(--accent-ink); }
+      .btn.primary:hover { background: #0966a8; border-color: #0966a8; }
       .btn svg { width: 18px; height: 18px; }
       .small { color: var(--muted); font-size: 13.5px; margin-top: 14px; }
 
@@ -68,7 +69,7 @@
       .feature p { grid-column: 2; margin: 0; color: var(--muted); font-size: 14.5px; }
       .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; counter-reset: step; }
       .step { padding: 22px; border-left: 2px solid var(--line); }
-      .step::before { counter-increment: step; content: counter(step); display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-weight: 700; margin-bottom: 12px; }
+      .step::before { counter-increment: step; content: counter(step); display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--accent-fill); color: var(--accent-ink); font-weight: 700; margin-bottom: 12px; }
       .step h3 { margin: 0 0 6px; font-size: 17px; color: var(--text); }
       .step p { margin: 0; color: var(--muted); font-size: 14.5px; }
       .stores { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 28px; }
@@ -113,8 +114,8 @@
         </div>
 
         <figure class="app-preview">
-          <a href="assets/app-preview.png" aria-label="View the SaveMe interface preview at full size">
-            <img src="assets/app-preview.png" alt="SaveMe's compact game library with Steam-blue controls, game covers and backup status" width="1084" height="621" fetchpriority="high" />
+          <a href="assets/app-preview.png?v=0.1.4" aria-label="View the SaveMe interface preview at full size">
+            <img src="assets/app-preview.png?v=0.1.4" alt="SaveMe's compact game library with Steam-blue controls, game covers and backup status" width="1084" height="621" fetchpriority="high" />
           </a>
           <figcaption>Interface preview with example games and backup data. Click to enlarge.</figcaption>
         </figure>

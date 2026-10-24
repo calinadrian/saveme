@@ -1,11 +1,12 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { app, BrowserWindow, Menu, nativeImage, Notification, Tray } from 'electron'
+import { app, BrowserWindow, Menu, nativeImage, Notification, Tray, shell } from 'electron'
 import electronUpdater from 'electron-updater'
 import { SaveMeApp } from './app'
 import { registerIpc } from './ipc'
 import { createUpdates, Updater } from './updates'
+import { APP_ID, DEV_APP_ID, repairSaveMeShortcuts } from './identity'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -19,7 +20,8 @@ let quitting = false
 let refreshTray: (() => void) | undefined
 
 app.setName('SaveMe')
-app.setAppUserModelId('app.saveme.desktop')
+const appId = app.isPackaged ? APP_ID : DEV_APP_ID
+app.setAppUserModelId(appId)
 const primary = app.requestSingleInstanceLock()
 
 /**
@@ -77,9 +79,9 @@ function showWindow(route?: string): void {
 
 function createWindow(): void {
   win = new BrowserWindow({
-    width: 1160,
+    width: 1100,
     height: 780,
-    minWidth: 860,
+    minWidth: 820,
     minHeight: 580,
     show: false,
     title: 'SaveMe',
@@ -93,7 +95,7 @@ function createWindow(): void {
   })
   // Explicit shell identity also supplies the icon when running through electron.exe in development.
   win.setAppDetails({
-    appId: 'app.saveme.desktop',
+    appId,
     appIconPath: path.join(resources, 'icon.ico'),
     relaunchDisplayName: 'SaveMe',
     relaunchCommand: app.isPackaged ? `"${process.execPath}"` : `"${process.execPath}" "${app.getAppPath()}"`
@@ -170,6 +172,19 @@ function watchUpdates(): void {
 }
 
 async function start(): Promise<void> {
+  if (process.platform === 'win32' && app.isPackaged) {
+    try {
+      repairSaveMeShortcuts(
+        path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs'),
+        path.join(app.getPath('userData'), 'shortcut-backups'),
+        process.execPath, path.join(resources, 'icon.ico'), shell
+      )
+    } catch (error) { console.warn('[saveme] Windows identity:', (error as Error).message) }
+  }
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    { label: 'File', submenu: [{ label: 'Quit SaveMe', accelerator: 'Ctrl+Q', click: () => app.quit() }] },
+    { role: 'editMenu' }, { role: 'viewMenu' }
+  ]))
   saveme = new SaveMeApp(app.getPath('userData'), notify)
   await saveme.init()
   registerIpc(saveme, { win: () => win, updates: { get: updates.get, check: updates.check, install: () => installUpdate(false) }, resources })

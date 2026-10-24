@@ -3,8 +3,8 @@
   --surface: #161920;
   --text: #eceef2;
   --text-2: #b9bec8;
-  --muted: #80879a;
-  --lime: #c8f24a;
+  --muted: #969eae;
+  --accent: #1a9fff;
   --line: #262a33;
   color-scheme: dark;
 }
@@ -46,7 +46,7 @@ main {
 }
 
 .brand b {
-  color: var(--lime);
+  color: var(--accent);
 }
 
 .brand img {
@@ -85,7 +85,7 @@ strong {
 }
 
 a {
-  color: var(--lime);
+  color: var(--accent);
   text-underline-offset: 3px;
 }
 
@@ -96,7 +96,6 @@ a {
 .summary {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-left: 3px solid var(--lime);
   border-radius: 12px;
   padding: 6px 22px;
   margin: 26px 0;
@@ -146,3 +145,6 @@ footer {
   font-size: 14px;
   color: var(--muted);
 }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+::selection { background: #1a9fff; color: #061827; }

@@ -13,18 +13,34 @@ const REVOKE: Partial<Record<ProviderKind, string>> = {
 
 export function Settings({ state, update, onOpenUpdate }: { state: AppState; update: UpdateState; onOpenUpdate: () => void }) {
   const [run, error] = useAction()
+  const [section, setSection] = useState('storage')
+  const sections: { id: string; label: string; icon: IconName }[] = [
+    { id: 'storage', label: 'Storage', icon: 'cloud' },
+    { id: 'history', label: 'Version history', icon: 'history' },
+    { id: 'behavior', label: 'General', icon: 'settings' },
+    { id: 'folders', label: 'Game folders', icon: 'games' },
+    { id: 'about', label: 'About SaveMe', icon: 'info' }
+  ]
   const s = state.settings
   const setRetention = (patch: Partial<RetentionPolicy>): void => void run(() => api.updateSettings({ retention: { ...s.retention, ...patch } }))
   const kind = state.provider.kind
 
   return (
-    <div className="page narrow">
+    <div className="page settings-page">
       <header className="page-head">
         <h1>Settings</h1>
       </header>
       {error && <div className="alert err">{error}</div>}
-
-      <Section icon="cloud" title="Storage" sub="Where your backups go.">
+      <div className="settings-layout">
+        <nav className="settings-nav" aria-label="Settings categories">
+          {sections.map(item => (
+            <button key={item.id} aria-current={section === item.id ? 'page' : undefined} className={section === item.id ? 'active' : ''} onClick={() => setSection(item.id)}>
+              <Icon name={item.icon} size={16} />{item.label}
+            </button>
+          ))}
+        </nav>
+        <div className="settings-panel">
+      {section === 'storage' && <Section icon="cloud" title="Storage" sub="Where your backups go.">
         {state.provider.connected && kind ? (
           <>
             <div className="row connected">
@@ -69,9 +85,9 @@ export function Settings({ state, update, onOpenUpdate }: { state: AppState; upd
         ) : (
           <ProviderPicker state={state} />
         )}
-      </Section>
+      </Section>}
 
-      <Section
+      {section === 'history' && <Section
         icon="history"
         title="Version history"
         sub={`Older versions are thinned out automatically. Each game keeps up to ${s.retention.keepLast + s.retention.keepDaily + s.retention.keepWeekly} versions.`}
@@ -81,9 +97,9 @@ export function Settings({ state, update, onOpenUpdate }: { state: AppState; upd
           <NumberField label="Plus one a day for" suffix="days" value={s.retention.keepDaily} onChange={(v) => setRetention({ keepDaily: v })} />
           <NumberField label="Plus one a week for" suffix="weeks" value={s.retention.keepWeekly} onChange={(v) => setRetention({ keepWeekly: v })} />
         </div>
-      </Section>
+      </Section>}
 
-      <Section icon="settings" title="Behavior">
+      {section === 'behavior' && <Section icon="settings" title="General" sub="How SaveMe works in the background.">
         <Setting title="Start with Windows" sub="Runs quietly in the tray so every play session is backed up.">
           <Toggle on={s.startAtLogin} label="Start with Windows" onChange={(v) => run(() => api.updateSettings({ startAtLogin: v }))} />
         </Setting>
@@ -93,9 +109,9 @@ export function Settings({ state, update, onOpenUpdate }: { state: AppState; upd
         <Setting title="Update automatically" sub="Checks GitHub for a new version every few hours and installs it while SaveMe is idle in the tray.">
           <Toggle on={s.autoUpdate} label="Update automatically" onChange={(v) => run(() => api.updateSettings({ autoUpdate: v }))} />
         </Setting>
-      </Section>
+      </Section>}
 
-      <Section icon="games" title="Game folders" sub="Steam, Epic and GOG games are found automatically. Add folders where you keep other games, like D:\Games.">
+      {section === 'folders' && <Section icon="games" title="Game folders" sub="Steam, Epic and GOG games are found automatically. Add folders where you keep other games, like D:\Games.">
         {s.extraLibraryFolders.length > 0 && (
           <ul className="paths">
             {s.extraLibraryFolders.map((f) => (
@@ -125,20 +141,19 @@ export function Settings({ state, update, onOpenUpdate }: { state: AppState; upd
             <Icon name="plus" size={16} /> Add folder
           </button>
         </div>
-      </Section>
+      </Section>}
 
-      <About update={update} onOpenUpdate={onOpenUpdate} />
+      {section === 'about' && <About update={update} onOpenUpdate={onOpenUpdate} />}
+        </div>
+      </div>
     </div>
   )
 }
 
 function Section({ icon, title, sub, children }: { icon: IconName; title: string; sub?: string; children: ReactNode }) {
   return (
-    <section className="card section">
+    <section className="section">
       <div className="section-head">
-        <span className="tile-icon">
-          <Icon name={icon} />
-        </span>
         <div>
           <h2>{title}</h2>
           {sub && <p className="muted">{sub}</p>}
@@ -193,9 +208,9 @@ function About({ update, onOpenUpdate }: { update: UpdateState; onOpenUpdate: ()
     { label: 'Report a problem', icon: 'alert', open: () => api.openUrl(REPO + '/issues') }
   ]
   return (
-    <section className="card about">
+    <section className="about">
       <div className="about-head">
-        <BrandMark size={48} tile />
+        <BrandMark size={40} tile />
         <div className="about-title">
           <strong>SaveMe {update.current}</strong>
           <span className={'muted' + (update.status === 'error' ? ' err-text' : '')} role="status">

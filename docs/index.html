@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>SaveMe · Never lose a game save</title>
     <meta name="description" content="SaveMe finds your PC game saves and backs them up to Google Drive, OneDrive or any folder after every play session. Free and open source." />
-    <link rel="icon" href="icon.png" />
+    <link rel="icon" href="icon.png?v=0.1.3" />
     <style>
       :root {
         --bg: #0c0e11;
@@ -14,9 +14,9 @@
         --line: #262a33;
         --text: #eceef2;
         --text-2: #b9bec8;
-        --muted: #80879a;
-        --lime: #c8f24a;
-        --lime-ink: #12160a;
+        --muted: #969eae;
+        --accent: #1a9fff;
+        --accent-ink: #061827;
         --amber: #ffc04d;
         --violet: #b99aff;
         color-scheme: dark;
@@ -24,7 +24,7 @@
       * { box-sizing: border-box; }
       body {
         margin: 0;
-        background: radial-gradient(900px 520px at 70% -10%, rgba(200, 242, 74, 0.09), transparent 70%), var(--bg);
+        background: var(--bg);
         color: var(--text-2);
         font: 16px/1.6 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, sans-serif;
         -webkit-font-smoothing: antialiased;
@@ -33,52 +33,42 @@
       .wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px; }
       header { display: flex; align-items: center; justify-content: space-between; padding: 22px 0; }
       .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 19px; text-decoration: none; color: var(--text); }
-      .brand b { color: var(--lime); }
+      .brand b { color: var(--accent); }
       .brand img { width: 34px; height: 34px; }
       header nav { display: flex; gap: 22px; color: var(--muted); font-size: 15px; }
       header nav a { text-decoration: none; }
       header nav a:hover { color: var(--text); }
       .hero { display: grid; grid-template-columns: 1.05fr 1fr; gap: 48px; align-items: center; padding: 56px 0 72px; }
       h1 { font-size: clamp(38px, 6vw, 60px); line-height: 1.04; letter-spacing: -0.035em; margin: 0 0 18px; color: var(--text); }
-      h1 span { color: var(--lime); }
+      h1 span { color: var(--accent); }
       .lead { color: var(--text-2); font-size: 19px; margin: 0 0 30px; max-width: 520px; }
       .cta { display: flex; gap: 12px; flex-wrap: wrap; }
-      .btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 20px; border-radius: 12px; text-decoration: none; font-weight: 600; border: 1px solid #2f3540; background: var(--surface-2); color: var(--text); }
+      .btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 20px; border-radius: 7px; text-decoration: none; font-weight: 600; border: 1px solid #2f3540; background: var(--surface-2); color: var(--text); }
       .btn:hover { border-color: #454c5a; }
-      .btn.primary { background: var(--lime); border-color: var(--lime); color: var(--lime-ink); }
-      .btn.primary:hover { background: #b4e033; }
+      .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+      .btn.primary:hover { background: #4cb3ff; }
       .btn svg { width: 18px; height: 18px; }
       .small { color: var(--muted); font-size: 13.5px; margin-top: 14px; }
 
-      /* app mockup */
-      .mock { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 18px; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5); }
-      .status { display: flex; align-items: center; gap: 14px; padding: 16px; border-radius: 14px; background: linear-gradient(120deg, rgba(200, 242, 74, 0.1), transparent 60%), var(--surface-2); border: 1px solid var(--line); margin-bottom: 12px; }
-      .status i { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 13px; color: var(--lime); background: rgba(200, 242, 74, 0.12); border: 1px solid rgba(200, 242, 74, 0.25); }
-      .status strong { display: block; color: var(--text); font-size: 17px; }
-      .status span { font-size: 13px; color: var(--muted); }
-      .row { display: flex; align-items: center; gap: 12px; padding: 9px 6px; border-radius: 9px; }
-      .cover { width: 64px; height: 30px; border-radius: 6px; flex: none; }
-      .row strong { display: block; font-size: 14px; font-weight: 600; color: var(--text); }
-      .row span.m { color: var(--muted); font-size: 12px; }
-      .row .grow { flex: 1; min-width: 0; }
-      .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; padding: 3px 10px; border-radius: 20px; white-space: nowrap; }
-      .pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-      .pill.ok { color: var(--lime); background: rgba(200, 242, 74, 0.12); }
-      .pill.play { color: var(--violet); background: rgba(185, 154, 255, 0.13); }
-      .pill.warn { color: var(--amber); background: rgba(255, 192, 77, 0.13); }
+      .app-preview { margin: 0; min-width: 0; }
+      .app-preview a { display: block; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--surface); }
+      .app-preview img { display: block; width: 100%; height: auto; }
+      .app-preview figcaption { color: var(--muted); font-size: 12px; margin-top: 10px; }
+      :focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+      ::selection { background: #1a9fff; color: #061827; }
 
       section { padding: 64px 0; }
       h2 { font-size: clamp(26px, 4vw, 36px); letter-spacing: -0.025em; margin: 0 0 10px; color: var(--text); }
       .sub { color: var(--muted); margin: 0 0 36px; max-width: 620px; }
-      .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-      .feature { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 22px; }
-      .feature .ic { width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center; color: var(--lime); background: rgba(200, 242, 74, 0.1); margin-bottom: 14px; }
+      .features { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 32px; }
+      .feature { display: grid; grid-template-columns: 24px minmax(0, 1fr); column-gap: 14px; row-gap: 6px; border-top: 1px solid var(--line); padding: 22px 0; }
+      .feature .ic { grid-row: 1 / 3; width: 24px; height: 24px; display: grid; place-items: center; color: var(--accent); }
       .feature .ic svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-      .feature h3 { margin: 0 0 6px; font-size: 17px; color: var(--text); }
-      .feature p { margin: 0; color: var(--muted); font-size: 14.5px; }
+      .feature h3 { grid-column: 2; margin: 0; font-size: 17px; color: var(--text); }
+      .feature p { grid-column: 2; margin: 0; color: var(--muted); font-size: 14.5px; }
       .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; counter-reset: step; }
       .step { padding: 22px; border-left: 2px solid var(--line); }
-      .step::before { counter-increment: step; content: counter(step); display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--lime); color: var(--lime-ink); font-weight: 700; margin-bottom: 12px; }
+      .step::before { counter-increment: step; content: counter(step); display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-weight: 700; margin-bottom: 12px; }
       .step h3 { margin: 0 0 6px; font-size: 17px; color: var(--text); }
       .step p { margin: 0; color: var(--muted); font-size: 14.5px; }
       .stores { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 28px; }
@@ -100,7 +90,7 @@
   <body>
     <div class="wrap">
       <header>
-        <a class="brand" href="#"><img src="icon.png" alt="" /><span>Save<b>Me</b></span></a>
+        <a class="brand" href="#"><img src="icon.png?v=0.1.3" alt="" /><span>Save<b>Me</b></span></a>
         <nav>
           <a href="#features">Features</a>
           <a href="#how">How it works</a>
@@ -122,32 +112,12 @@
           <p class="small">Free and open source (MIT) · Windows 10/11 · Updates itself · Your saves stay in your own storage</p>
         </div>
 
-        <div class="mock" aria-hidden="true">
-          <div class="status">
-            <i><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5.4c0 4.4-2.9 7.9-7 9.6-4.1-1.7-7-5.2-7-9.6V6zM8.8 12.1l2.2 2.2 4.3-4.5" /></svg></i>
-            <div><strong>All 23 games are backed up</strong><span>Last backup 2 minutes ago to Google Drive</span></div>
-          </div>
-          <div class="row">
-            <div class="cover" style="background: linear-gradient(140deg, #3d4f66, #1b2431)"></div>
-            <div class="grow"><strong>Elden Ring</strong><span class="m">2 minutes ago · 4.2 MB</span></div>
-            <span class="pill ok">Backed up</span>
-          </div>
-          <div class="row">
-            <div class="cover" style="background: linear-gradient(140deg, #4f4466, #211b31)"></div>
-            <div class="grow"><strong>Hollow Knight</strong><span class="m">1.1 MB · 6 files</span></div>
-            <span class="pill play">Playing</span>
-          </div>
-          <div class="row">
-            <div class="cover" style="background: linear-gradient(140deg, #665238, #31261b)"></div>
-            <div class="grow"><strong>Project Zomboid</strong><span class="m">Newer save from LIVING-ROOM-PC</span></div>
-            <span class="pill warn">Newer in cloud</span>
-          </div>
-          <div class="row">
-            <div class="cover" style="background: linear-gradient(140deg, #3c6650, #1b3127)"></div>
-            <div class="grow"><strong>Stardew Valley</strong><span class="m">yesterday · 380 KB</span></div>
-            <span class="pill ok">Backed up</span>
-          </div>
-        </div>
+        <figure class="app-preview">
+          <a href="assets/app-preview.png" aria-label="View the SaveMe interface preview at full size">
+            <img src="assets/app-preview.png" alt="SaveMe's compact game library with Steam-blue controls, game covers and backup status" width="1084" height="621" fetchpriority="high" />
+          </a>
+          <figcaption>Interface preview with example games and backup data. Click to enlarge.</figcaption>
+        </figure>
       </div>
     </div>
 

@@ -1,4 +1,4 @@
-// Flat archive-and-arrow icon. All Windows sizes use the same geometry as BrandMark.
+// Bold game-save disk. All Windows sizes use the same geometry as BrandMark.
 // resources/icon.png (256px), resources/icon.ico (16-256px, for the exe and installer), resources/tray.png
 // (32px) and docs/icon.png. Each size is drawn at its own resolution so small icons stay crisp.
 import fs from 'node:fs'
@@ -73,22 +73,17 @@ const roundedBox = (x, y, cx, cy, hw, hh, r) => {
   const qy = Math.abs(y - cy) - hh + r
   return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r
 }
-const segment = (x, y, ax, ay, bx, by) => {
-  const dx = bx - ax, dy = by - ay
-  const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy)))
-  return Math.hypot(x - ax - t * dx, y - ay - t * dy)
-}
-const strokes = [[12, 4, 12, 13], [9, 10, 12, 13], [12, 13, 15, 10], [4, 15, 8, 15], [8, 15, 9.5, 17], [9.5, 17, 14.5, 17], [14.5, 17, 16, 15], [16, 15, 20, 15]]
-
 function icon(x, y, size) {
   const u = x / size * 24
   const v = y / size * 24
-  const tile = roundedBox(u, v, 12, 12, 11.5, 11.5, 4.5)
-  if (tile > 0) return [0, 0, 0, 0]
-  const width = size <= 20 ? 1 : 0.9
-  const outline = Math.abs(roundedBox(u, v, 12, 14, 8, 6, 1.5)) <= width && !(v < 10 && u > 7 && u < 17)
-  const line = strokes.some(s => segment(u, v, ...s) <= width)
-  const color = outline || line ? [220, 232, 250] : [37, 54, 78]
+  if (Math.hypot(u - 12, v - 12) > 11.5) return [0, 0, 0, 0]
+  const disk = roundedBox(u, v, 12, 12, 7, 7, 1) <= 0 && u - v <= 11
+  const shutter = u >= 8 && u <= 14 && v >= 6 && v <= 10
+  const slot = u >= 12 && u <= 13 && v >= 7 && v <= 9
+  const label = roundedBox(u, v, 12, 16, 4, 3, 0.5) <= 0
+  const writing = u >= 10 && u <= 14 && (Math.abs(v - 15) <= 0.5 || Math.abs(v - 17) <= 0.5)
+  const white = disk && (!shutter || slot) && (!label || writing)
+  const color = white ? [242, 247, 244] : [26, 159, 255]
   return [...color, 1]
 }
 

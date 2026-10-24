@@ -58,15 +58,16 @@ export function Icon({ name, size = 18, className }: { name: IconName; size?: nu
   )
 }
 
-/** A flat archive box and save arrow; matches the Windows and tray assets. */
+/** A bold game-save disk, identical to the Windows and tray assets. */
 export function BrandMark({ size = 26, tile = true }: { size?: number; tile?: boolean }) {
   return (
     <svg className="brand-mark" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
-      {tile && <rect x="0" y="0" width="24" height="24" rx="5" fill="#25364e" />}
-      <g fill="none" stroke={tile ? '#dce8fa' : 'var(--accent)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M12 4v9m-3-3 3 3 3-3" />
-        <path d="M7 8H5.5A1.5 1.5 0 0 0 4 9.5v9A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5v-9A1.5 1.5 0 0 0 18.5 8H17M4 15h4l1.5 2h5l1.5-2h4" />
-      </g>
+      <circle cx="12" cy="12" r="11.5" fill="#1a9fff" />
+      <path d="M6 5h10l3 3v10a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" fill="#f2f7f4" />
+      <rect x="8" y="6" width="6" height="4" rx="0.5" fill="#1a9fff" />
+      <rect x="12" y="7" width="1" height="2" fill="#f2f7f4" />
+      <rect x="8" y="13" width="8" height="6" rx="0.5" fill="#1a9fff" />
+      <path d="M10 15h4m-4 2h4" stroke="#f2f7f4" strokeWidth="1" />
     </svg>
   )
 }

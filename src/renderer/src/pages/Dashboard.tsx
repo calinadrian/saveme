@@ -267,7 +267,7 @@ function CoverageCard({ state, onOpen }: { state: AppState; onOpen: () => void }
         <span className="seg mine" style={{ width: `${share * 100}%` }} />
       </div>
       <div className="legend">
-        <span>{off ? `${plural(off, 'more game')} found, backup off` : 'Every game found is backed up'}</span>
+        <span>{off ? `${plural(off, 'more game')} found, backup off` : safe === tracked.length && safe > 0 ? 'Every game found is backed up' : `${plural(tracked.length - safe, 'game')} waiting for a successful backup`}</span>
       </div>
     </button>
   )

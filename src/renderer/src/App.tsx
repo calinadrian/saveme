@@ -121,7 +121,7 @@ function SyncIndicator({ state, onClick }: { state: AppState; onClick: () => voi
   const [cls, label] = !state.provider.connected
     ? ['off', 'Backups paused']
     : state.scanning
-      ? ['busy', 'Scanning for games…']
+      ? ['busy', 'Scanning games…']
       : queue
         ? ['busy', `Backing up ${plural(queue, 'game')}…`]
         : attention

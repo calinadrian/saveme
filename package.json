@@ -1,7 +1,7 @@
 {
   "name": "saveme",
   "productName": "SaveMe",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Automatic game save backup to Google Drive, OneDrive or any folder",
   "author": {
     "name": "calinadrian",
@@ -20,7 +20,7 @@
     "icons": "node scripts/make-icons.mjs",
     "licenses": "node scripts/licenses.mjs",
     "dev": "npm run licenses && electron-vite dev",
-    "build": "npm run licenses && electron-vite build",
+    "build": "npm run icons && npm run licenses && electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "package": "npm run build && electron-builder --win --publish never",

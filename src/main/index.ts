@@ -84,12 +84,19 @@ function createWindow(): void {
     show: false,
     title: 'SaveMe',
     backgroundColor: '#0c0e11',
-    icon: path.join(resources, 'icon.png'),
+    icon: path.join(resources, 'icon.ico'),
     // Our own title bar (see TitleBar in App.tsx) with the native Windows buttons on top.
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: '#0c0e11', symbolColor: '#a3a9b5', height: 40 },
     autoHideMenuBar: true,
     webPreferences: { preload: path.join(__dirname, '../preload/index.cjs'), sandbox: true, contextIsolation: true }
+  })
+  // Explicit shell identity also supplies the icon when running through electron.exe in development.
+  win.setAppDetails({
+    appId: 'app.saveme.desktop',
+    appIconPath: path.join(resources, 'icon.ico'),
+    relaunchDisplayName: 'SaveMe',
+    relaunchCommand: app.isPackaged ? `"${process.execPath}"` : `"${process.execPath}" "${app.getAppPath()}"`
   })
   win.on('close', (e) => {
     // Closing the window keeps SaveMe running in the tray.

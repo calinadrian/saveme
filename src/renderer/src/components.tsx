@@ -1,6 +1,7 @@
 import { ReactNode, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { Game, GameStatus, ProviderKind } from '../../shared/types'
+import { useCover } from './artwork'
 
 // ---- icons: 24px grid, drawn with the current text color ----
 
@@ -57,17 +58,14 @@ export function Icon({ name, size = 18, className }: { name: IconName; size?: nu
   )
 }
 
-/** The app icon: a floppy disk with a heart on its label. Same drawing as scripts/make-icons.mjs. */
-export function BrandMark({ size = 26, tile = false }: { size?: number; tile?: boolean }) {
+/** A flat archive box and save arrow; matches the Windows and tray assets. */
+export function BrandMark({ size = 26, tile = true }: { size?: number; tile?: boolean }) {
   return (
     <svg className="brand-mark" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
-      {tile && <rect x="0.5" y="0.5" width="23" height="23" rx="5.5" fill="#1a1d23" stroke="#2c313b" />}
-      <g transform={tile ? 'translate(2.4 2.4) scale(0.8)' : undefined}>
-        <path d="M5.4 2.6h11.1l4.1 4.1v12.5a2.2 2.2 0 0 1-2.2 2.2H5.4a2.2 2.2 0 0 1-2.2-2.2V4.8a2.2 2.2 0 0 1 2.2-2.2z" fill="var(--lime)" />
-        <rect x="7.4" y="2.6" width="7.6" height="5" rx="0.8" fill="#11140d" />
-        <rect x="11.8" y="3.5" width="1.8" height="3.1" rx="0.4" fill="var(--lime)" />
-        <rect x="6.6" y="11.6" width="10.8" height="7.6" rx="1.3" fill="#f4f6f0" />
-        <path d="M12 18s-2.9-1.8-3.4-3.6c-.4-1.4.4-2.4 1.5-2.4.8 0 1.3.4 1.9 1.1.7-.7 1.2-1.1 2-1.1 1.1 0 1.9 1 1.5 2.4C15 16.2 12 18 12 18z" fill="var(--heart)" />
+      {tile && <rect x="0" y="0" width="24" height="24" rx="5" fill="#25364e" />}
+      <g fill="none" stroke={tile ? '#dce8fa' : 'var(--accent)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 4v9m-3-3 3 3 3-3" />
+        <path d="M7 8H5.5A1.5 1.5 0 0 0 4 9.5v9A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5v-9A1.5 1.5 0 0 0 18.5 8H17M4 15h4l1.5 2h5l1.5-2h4" />
       </g>
     </svg>
   )
@@ -113,19 +111,16 @@ export function StatusPill({ game, running }: { game: Game; running?: boolean })
 }
 
 export function Cover({ game, size = 'sm' }: { game: Game; size?: 'sm' | 'lg' }) {
-  const [failed, setFailed] = useState(false)
-  const hue = [...game.name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7)
-  if (game.steamId && !failed) {
-    return <img className={`cover ${size}`} src={coverUrl(game)} onError={() => setFailed(true)} alt="" />
+  const art = useCover(game)
+  if (art) {
+    return <img className={`cover ${size}`} src={art} alt="" />
   }
   return (
-    <div className={`cover ${size} letter`} style={{ background: `linear-gradient(140deg, hsl(${hue} 32% 30%), hsl(${(hue + 50) % 360} 38% 16%))` }}>
+    <div className={`cover ${size} letter`}>
       {game.name.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase()}
     </div>
   )
 }
-
-export const coverUrl = (game: Game): string | undefined => (game.steamId ? `https://cdn.cloudflare.steamstatic.com/steam/apps/${game.steamId}/header.jpg` : undefined)
 
 export function Toggle({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label?: string }) {
   return (

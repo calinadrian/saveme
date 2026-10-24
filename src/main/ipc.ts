@@ -3,6 +3,7 @@ import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { ProviderKind, Settings, UpdateState } from '../shared/types'
 import { SaveMeApp } from './app'
 import { OAuthIds } from './config'
+import { ArtworkStore } from './artwork'
 
 /** Links the UI may open: app registration, SaveMe's site and repo, and where users revoke SaveMe's access. */
 const EXTERNAL = /^https:\/\/(console\.cloud\.google\.com|entra\.microsoft\.com|portal\.azure\.com|calinadrian\.github\.io\/saveme|github\.com\/calinadrian\/saveme|myaccount\.google\.com\/permissions|account\.live\.com\/consent)(\/|$)/
@@ -12,6 +13,7 @@ export function registerIpc(
   saveme: SaveMeApp,
   { win, updates, resources }: { win: () => BrowserWindow | undefined; updates: { get(): UpdateState; check(): UpdateState; install(): void }; resources: string }
 ): void {
+  const artwork = new ArtworkStore(path.join(app.getPath('userData'), 'artwork'))
   const handle = (channel: string, fn: (...args: never[]) => unknown): void => {
     ipcMain.handle(channel, async (_e, ...args) => {
       try {
@@ -23,6 +25,7 @@ export function registerIpc(
   }
 
   handle('state', () => saveme.state())
+  handle('artwork', (id: string) => artwork.get(saveme.db.data.games[id]?.steamId))
   handle('scan', () => saveme.scan())
   handle('backupAll', () => saveme.backupAll())
   handle('backupNow', (id: string) => saveme.backupNow(id))

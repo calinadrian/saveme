@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 const channels = [
   'state',
+  'artwork',
   'scan',
   'backupAll',
   'backupNow',

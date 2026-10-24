@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { AppState, GameIndex } from '../../../shared/types'
 import type { Navigate } from '../App'
 import { api, formatBytes, plural, timeAgo, winPath } from '../api'
-import { Cover, coverUrl, Icon, StatusPill, STORE_NAMES, Toggle, useAction } from '../components'
+import { Cover, Icon, StatusPill, STORE_NAMES, Toggle, useAction } from '../components'
 import { Empty } from './Dashboard'
 import { confirmRestore } from './Games'
 
@@ -47,15 +47,12 @@ export function GameDetail({ state, id, navigate }: { state: AppState; id: strin
     void run(async () => {
       if (await confirmRestore(game, label)) await api.restore(id, snapshotId)
     })
-  const art = coverUrl(game)
-
   return (
     <div className="page">
       <button className="link back" onClick={() => navigate('/games')}>
         <Icon name="back" size={16} /> Games
       </button>
       <header className="detail-hero">
-        {art && <div className="detail-backdrop" style={{ backgroundImage: `url(${art})` }} />}
         <Cover game={game} size="lg" />
         <div className="detail-title">
           <h1>{game.name}</h1>

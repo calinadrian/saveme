@@ -1,4 +1,4 @@
-// Generates the app icon (a floppy disk with a heart on its label: "save me") without any image tools:
+// Flat archive-and-arrow icon. All Windows sizes use the same geometry as BrandMark.
 // resources/icon.png (256px), resources/icon.ico (16-256px, for the exe and installer), resources/tray.png
 // (32px) and docs/icon.png. Each size is drawn at its own resolution so small icons stay crisp.
 import fs from 'node:fs'
@@ -48,7 +48,7 @@ function png(size, pixel) {
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))])
 }
 
-/** Windows .ico holding one PNG per size (supported since Vista). */
+/** Windows ICO: native bitmap frames at shell sizes, PNG only for the 256px frame. */
 function ico(images) {
   const header = Buffer.alloc(6 + 16 * images.length)
   header.writeUInt16LE(1, 2)
@@ -67,69 +67,58 @@ function ico(images) {
   return Buffer.concat([header, ...images.map((i) => i.data)])
 }
 
-const clamp = (v) => Math.max(0, Math.min(1, v))
-const mix = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t)
-
 // Signed distance helpers, in units of the icon size (0..1).
 const roundedBox = (x, y, cx, cy, hw, hh, r) => {
   const qx = Math.abs(x - cx) - hw + r
   const qy = Math.abs(y - cy) - hh + r
   return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r
 }
-const circle = (x, y, cx, cy, r) => Math.hypot(x - cx, y - cy) - r
-
-const INK_TOP = [36, 40, 49]
-const INK_BOTTOM = [16, 18, 23]
-const LIME = [200, 242, 74]
-const LIME_DEEP = [150, 205, 40]
-
-function heart(u, v, cx, cy, s) {
-  const x = Math.abs(u - cx) / s
-  const y = (v - cy) / s
-  const lobe = circle(x, y, 0.5, -0.25, 0.52)
-  // The point: everything under the two tangents that meet at (0, 1).
-  const point = Math.max(-0.25 - y, (y - 1 + x * 1.25) / Math.hypot(1, 1.25))
-  return Math.min(lobe, point) * s
+const segment = (x, y, ax, ay, bx, by) => {
+  const dx = bx - ax, dy = by - ay
+  const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy)))
+  return Math.hypot(x - ax - t * dx, y - ay - t * dy)
 }
-
-function floppy(u, v, small) {
-  // Body with the top-right corner cut off.
-  const body = Math.max(roundedBox(u, v, 0.5, 0.52, 0.28, 0.29, 0.055), (u - v - 0.43) / Math.SQRT2)
-  // Metal shutter at the top, with its slot.
-  const shutter = roundedBox(u, v, 0.47, 0.315, 0.135, 0.085, 0.025)
-  const slot = roundedBox(u, v, 0.53, 0.315, 0.035, 0.05, 0.012)
-  // Label at the bottom, with the heart.
-  const label = roundedBox(u, v, 0.5, 0.655, 0.19, 0.125, 0.035)
-  const love = heart(u, v, 0.5, 0.635, small ? 0.13 : 0.105)
-  return { body, shutter, slot, label, love }
-}
+const strokes = [[12, 4, 12, 13], [9, 10, 12, 13], [12, 13, 15, 10], [4, 15, 8, 15], [8, 15, 9.5, 17], [9.5, 17, 14.5, 17], [14.5, 17, 16, 15], [16, 15, 20, 15]]
 
 function icon(x, y, size) {
-  const u = x / size
-  const v = y / size
-  const small = size < 30
-  const inside = (d) => (d <= 0 ? 1 : 0)
-  const tile = roundedBox(u, v, 0.5, 0.5, 0.47, 0.47, 0.21)
+  const u = x / size * 24
+  const v = y / size * 24
+  const tile = roundedBox(u, v, 12, 12, 11.5, 11.5, 4.5)
   if (tile > 0) return [0, 0, 0, 0]
-  let color = mix(INK_TOP, INK_BOTTOM, v)
-  // Soft lime glow behind the disk.
-  color = mix(color, LIME, 0.14 * clamp(1 - Math.hypot(u - 0.5, v - 0.52) / 0.5))
-  const f = floppy(u, v, small)
-  if (inside(f.body)) {
-    color = mix(LIME, LIME_DEEP, clamp((v - 0.23) / 0.58))
-    if (inside(f.shutter) && !(small && inside(f.slot)) && !(!small && inside(f.slot))) color = INK_BOTTOM
-    if (inside(f.shutter) && inside(f.slot)) color = small ? INK_BOTTOM : LIME
-    if (inside(f.label)) color = [244, 246, 240]
-    if (inside(f.love)) color = [255, 92, 108]
-  }
+  const width = size <= 20 ? 1 : 0.9
+  const outline = Math.abs(roundedBox(u, v, 12, 14, 8, 6, 1.5)) <= width && !(v < 10 && u > 7 && u < 17)
+  const line = strokes.some(s => segment(u, v, ...s) <= width)
+  const color = outline || line ? [220, 232, 250] : [37, 54, 78]
   return [...color, 1]
 }
 
 const draw = (size) => png(size, icon)
+function dib(size) {
+  const encoded = draw(size)
+  const raw = zlib.inflateSync(encoded.subarray(41, 41 + encoded.readUInt32BE(33)))
+  const maskStride = Math.ceil(size / 32) * 4
+  const bitmap = Buffer.alloc(40 + size * size * 4 + maskStride * size)
+  bitmap.writeUInt32LE(40, 0)
+  bitmap.writeInt32LE(size, 4)
+  bitmap.writeInt32LE(size * 2, 8) // color plane plus transparency mask
+  bitmap.writeUInt16LE(1, 12)
+  bitmap.writeUInt16LE(32, 14)
+  bitmap.writeUInt32LE(size * size * 4 + maskStride * size, 20)
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const src = y * (size * 4 + 1) + 1 + x * 4
+    const dest = 40 + ((size - y - 1) * size + x) * 4
+    bitmap[dest] = raw[src + 2]
+    bitmap[dest + 1] = raw[src + 1]
+    bitmap[dest + 2] = raw[src]
+    bitmap[dest + 3] = raw[src + 3]
+    if (!raw[src + 3]) bitmap[40 + size * size * 4 + (size - y - 1) * maskStride + (x >> 3)] |= 0x80 >> (x % 8)
+  }
+  return bitmap
+}
 const sizes = [16, 20, 24, 32, 40, 48, 64, 128, 256]
 fs.mkdirSync('resources', { recursive: true })
 fs.writeFileSync('resources/icon.png', draw(256))
 fs.writeFileSync('docs/icon.png', draw(256))
 fs.writeFileSync('resources/tray.png', draw(32))
-fs.writeFileSync('resources/icon.ico', ico(sizes.map((size) => ({ size, data: draw(size) }))))
+fs.writeFileSync('resources/icon.ico', ico(sizes.map((size) => ({ size, data: size === 256 ? draw(size) : dib(size) }))))
 console.log('wrote resources/icon.png, resources/icon.ico, resources/tray.png, docs/icon.png')

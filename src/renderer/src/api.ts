@@ -3,6 +3,7 @@ import type { AppState, GameIndex, ProviderKind, Settings, UpdateState } from '.
 
 export interface SaveMeApi {
   state(): Promise<AppState>
+  artwork(id: string): Promise<string | undefined>
   scan(): Promise<void>
   backupAll(): Promise<void>
   backupNow(id: string): Promise<void>

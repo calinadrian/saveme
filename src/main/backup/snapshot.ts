@@ -4,7 +4,7 @@ import crypto from 'node:crypto'
 import { unzipSync, zipSync, Zippable } from 'fflate'
 import { Game } from '../../shared/types'
 import { expandFiles, literalPrefix } from '../detect/scanner'
-import { KnownFolders, Portable } from '../detect/paths'
+import { isUnder, KnownFolders, Portable } from '../detect/paths'
 
 export const META_ENTRY = 'saveme.json'
 
@@ -15,9 +15,27 @@ export function collectFiles(game: Pick<Game, 'roots'>, folders: KnownFolders): 
   return [...all].sort()
 }
 
-/** Folders worth watching for changes (glob-free prefixes of the save roots). */
+/** Glob-free start of each save root: what to open in Explorer. */
 export function watchDirs(game: Pick<Game, 'roots'>): string[] {
   return [...new Set(game.roots.map((r) => literalPrefix(r.resolved).replace(/\\(.)/g, '$1')))]
+}
+
+/**
+ * Folders that actually hold the saves. For wildcard roots like `Steam/userdata/<id>/123/remote`
+ * the glob-free prefix (`Steam/userdata`) is far too broad to watch, so use the matched files' folders.
+ */
+export function saveDirs(game: Pick<Game, 'roots'>, folders: KnownFolders): string[] {
+  const dirs = new Set<string>()
+  for (const r of game.roots) {
+    if (!/[*?[{]/.test(r.resolved)) {
+      dirs.add(r.resolved.replace(/\\(.)/g, '$1'))
+      continue
+    }
+    for (const f of expandFiles(r.resolved, folders)) dirs.add(f.slice(0, f.lastIndexOf('/')))
+  }
+  // Keep only the outermost folders; chokidar watches subfolders itself.
+  const sorted = [...dirs].sort((a, b) => a.length - b.length)
+  return sorted.filter((d, i) => !sorted.slice(0, i).some((p) => isUnder(d, p)))
 }
 
 const hashCache = new Map<string, { size: number; mtimeMs: number; hash: string }>()

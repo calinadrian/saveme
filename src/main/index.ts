@@ -117,8 +117,17 @@ function createTray(): void {
   refreshTray = (): void => {
     const s = saveme.state()
     const u = updates.get()
-    const busy = s.queue.length ? `Backing up ${s.queue.length} game${s.queue.length > 1 ? 's' : ''}…` : s.provider.connected ? 'All saves backed up' : 'Not connected'
     const pending = s.games.filter((g) => g.status === 'cloud-newer').length
+    const failed = s.games.filter((g) => g.status === 'error').length
+    const busy = s.queue.length
+      ? `Backing up ${s.queue.length} game${s.queue.length > 1 ? 's' : ''}…`
+      : !s.provider.connected
+        ? 'Not connected'
+        : failed
+          ? `${failed} backup${failed > 1 ? 's' : ''} failed`
+          : pending
+            ? 'Newer saves waiting in the cloud'
+            : 'All saves backed up'
     tray!.setToolTip(`SaveMe: ${busy}`)
     tray!.setContextMenu(
       Menu.buildFromTemplate([
@@ -157,7 +166,8 @@ async function start(): Promise<void> {
   saveme = new SaveMeApp(app.getPath('userData'), notify)
   await saveme.init()
   registerIpc(saveme, { win: () => win, updates: { get: updates.get, check: updates.check, install: () => installUpdate(false) }, resources })
-  app.setLoginItemSettings({ openAtLogin: saveme.db.data.settings.startAtLogin, args: ['--hidden'] })
+  // A development run would register electron.exe without the app path, which can't start SaveMe.
+  if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: saveme.db.data.settings.startAtLogin, args: ['--hidden'] })
   createTray()
   createWindow()
   if (afterUpdate && afterUpdate.from !== app.getVersion()) {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { AppState, GameIndex } from '../../../shared/types'
 import type { Navigate } from '../App'
-import { api, formatBytes, plural, timeAgo } from '../api'
+import { api, formatBytes, plural, timeAgo, winPath } from '../api'
 import { Cover, coverUrl, Icon, StatusPill, STORE_NAMES, Toggle, useAction } from '../components'
 import { Empty } from './Dashboard'
 import { confirmRestore } from './Games'
@@ -165,13 +165,13 @@ export function GameDetail({ state, id, navigate }: { state: AppState; id: strin
           {game.roots.map((r) => (
             <li key={r.template}>
               <Icon name="folder" size={15} />
-              <code>{r.resolved.replace(/\\(.)/g, '$1')}</code>
+              <code>{winPath(r.resolved.replace(/\\(.)/g, '$1'))}</code>
             </li>
           ))}
         </ul>
         {game.installDir && (
           <p className="muted small">
-            Installed at <code>{game.installDir}</code>
+            Installed at <code>{winPath(game.installDir)}</code>
           </p>
         )}
       </section>

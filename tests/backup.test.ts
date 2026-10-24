@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { BackupEngine } from '../src/main/backup/engine'
 import { snapshotsToPrune } from '../src/main/backup/retention'
 import { LocalFolderProvider } from '../src/main/cloud/local'
-import { cleanFolder, Game, remoteFolderFor, SnapshotMeta } from '../src/shared/types'
+import { cleanFolder, Game, locationLabel, remoteFolderFor, SnapshotMeta } from '../src/shared/types'
 import { Db } from '../src/main/store/db'
 import { resolveTemplate } from '../src/main/detect/scanner'
 import { fakeFolders } from './helpers'
@@ -147,6 +147,12 @@ describe('backup folder', () => {
     expect(remoteFolderFor({}, 'gdrive')).toBe('SaveMe')
     expect(remoteFolderFor({}, 'onedrive')).toBe('')
     expect(remoteFolderFor({ remoteFolder: { gdrive: 'Games/Saves' } }, 'gdrive')).toBe('Games/Saves')
+  })
+
+  it('shows folder locations the way Windows does', () => {
+    expect(locationLabel('local', 'E:\\Backups\\', 'SaveMe/PC')).toBe('E:\\Backups\\SaveMe\\PC')
+    expect(locationLabel('gdrive', undefined, 'SaveMe')).toBe('My Drive/SaveMe')
+    expect(locationLabel('onedrive', undefined, '')).toBe('OneDrive/Apps/SaveMe')
   })
 
   it('writes backups inside the chosen folder', async () => {

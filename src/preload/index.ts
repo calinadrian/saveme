@@ -43,7 +43,7 @@ api.onNavigate = (fn: (route: string) => void) => {
   ipcRenderer.on('navigate', listener)
   return () => ipcRenderer.removeListener('navigate', listener)
 }
-api.onUpdate =(fn: (u: unknown) => void) => {
+api.onUpdate = (fn: (u: unknown) => void) => {
   const listener = (_: unknown, u: unknown): void => fn(u)
   ipcRenderer.on('update', listener)
   return () => ipcRenderer.removeListener('update', listener)

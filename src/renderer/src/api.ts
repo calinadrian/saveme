@@ -88,4 +88,7 @@ export function timeAgo(iso?: string | number): string {
   return new Date(at).toLocaleDateString()
 }
 
-export const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`
+/** Save paths are kept with forward slashes; show them the way Windows does. */
+export const winPath = (p: string): string => p.replace(/\//g, '\\')
+
+export const plural =(n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`

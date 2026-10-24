@@ -1,5 +1,5 @@
 import { ReactNode, useState } from 'react'
-import { cleanFolder, remoteFolderFor, REMOTE_ROOT_LABEL } from '../../../shared/types'
+import { cleanFolder, locationLabel, remoteFolderFor, REMOTE_ROOT_LABEL } from '../../../shared/types'
 import type { AppState, ProviderKind, RetentionPolicy, UpdateState } from '../../../shared/types'
 import { api, REPO, SITE, timeAgo } from '../api'
 import { BrandMark, confirmDialog, Icon, IconName, PROVIDER_NAMES, PROVIDER_PLACE, ProviderIcon, Spinner, Toggle, useAction } from '../components'
@@ -235,7 +235,7 @@ function FolderSetting({ state }: { state: AppState }) {
   const [run, error, busy] = useAction()
   const save = (): Promise<void> =>
     run(async () => {
-      const target = [REMOTE_ROOT_LABEL[kind] || state.settings.localFolder, cleanFolder(folder)].filter(Boolean).join('/')
+      const target = locationLabel(kind, state.settings.localFolder, cleanFolder(folder))
       const ok = await confirmDialog({
         title: 'Move future backups?',
         message: (

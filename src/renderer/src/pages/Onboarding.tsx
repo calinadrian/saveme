@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { cleanFolder, remoteFolderFor, REMOTE_ROOT_LABEL } from '../../../shared/types'
+import { cleanFolder, locationLabel, remoteFolderFor, REMOTE_ROOT_LABEL } from '../../../shared/types'
 import type { AppState, ProviderKind } from '../../../shared/types'
 import { api, formatBytes, plural, SITE } from '../api'
 import { BrandMark, Icon, IconName, Spinner, useAction } from '../components'
@@ -130,7 +130,7 @@ function ConnectPanel({ kind, state, onCancel }: { kind: ProviderKind; state: Ap
         </div>
       </label>
       <p className="muted small">
-        Backups will go to <code>{[kind === 'local' ? localRoot || '…' : REMOTE_ROOT_LABEL[kind], clean].filter(Boolean).join('/')}</code>, one subfolder per game.
+        Backups will go to <code>{locationLabel(kind, localRoot || '…', clean)}</code>, one subfolder per game.
         {kind === 'onedrive' && ' OneDrive only lets SaveMe use its own Apps/SaveMe folder.'} The folder is created if it doesn't exist.
       </p>
 

@@ -349,7 +349,8 @@ nav {
 
 @media (max-width: 1000px) {
   .grid-2 {
-    grid-template-columns: 1fr;
+    /* minmax(0, …) so a long game name ellipsizes instead of widening the page */
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -1102,9 +1103,32 @@ input::placeholder {
   width: 132px;
 }
 
-.game-row .pill {
-  min-width: 118px;
-  justify-content: flex-start;
+/* As wide as the toggles below it; the label overflows to the left. */
+.list-head span:nth-child(3) {
+  width: 40px;
+  display: flex;
+  justify-content: flex-end;
+  white-space: nowrap;
+}
+
+/* Same width as the Status heading, so pills of any length line up on the left. */
+.status-cell {
+  flex: none;
+  display: flex;
+  width: 132px;
+}
+
+/* Small windows: the restore choices move under the game name instead of squeezing it out. */
+@media (max-width: 1000px) {
+  .game-row {
+    flex-wrap: wrap;
+  }
+
+  .game-row .inline-actions {
+    order: 1;
+    width: 100%;
+    padding-left: 102px;
+  }
 }
 
 .game-row.is-off .cover {
@@ -1284,6 +1308,17 @@ input::placeholder {
   text-align: right;
   display: flex;
   justify-content: flex-end;
+}
+
+/* Small windows: drop the "why" column so the timeline fits without scrolling sideways. */
+@media (max-width: 1000px) {
+  .timeline li {
+    grid-template-columns: 18px minmax(0, 1.4fr) minmax(0, 1fr) 70px auto;
+  }
+
+  .tl-why {
+    display: none;
+  }
 }
 
 .paths {

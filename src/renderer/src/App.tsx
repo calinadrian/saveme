@@ -92,7 +92,7 @@ export function App() {
           ))}
         </nav>
         <div className="sidebar-foot">
-          <SyncIndicator state={state} onClick={() => setRoute(state.provider.connected ? '/' : '/settings')} />
+          <SyncIndicator state={state} onClick={() => setRoute(!state.provider.connected ? '/settings' : attention ? '/games' : '/')} />
           <VersionChip update={update} onOpen={() => setUpdateOpen(true)} onCheck={() => void api.checkForUpdate()} />
         </div>
       </aside>
@@ -116,13 +116,17 @@ function TitleBar() {
 
 function SyncIndicator({ state, onClick }: { state: AppState; onClick: () => void }) {
   const queue = state.queue.length
+  // Same rule as the overview: a failed backup or a newer save elsewhere isn't "all backed up".
+  const attention = state.games.filter((g) => g.status === 'cloud-newer' || g.status === 'error').length
   const [cls, label] = !state.provider.connected
     ? ['off', 'Backups paused']
     : state.scanning
       ? ['busy', 'Scanning for games…']
       : queue
         ? ['busy', `Backing up ${plural(queue, 'game')}…`]
-        : ['ok', 'All saves backed up']
+        : attention
+          ? ['off', `${plural(attention, 'game')} ${attention === 1 ? 'needs' : 'need'} a look`]
+          : ['ok', 'All saves backed up']
   return (
     <button className={`sync ${cls}`} onClick={onClick}>
       {cls === 'busy' ? <Spinner size={12} /> : <i className="sync-dot" />}

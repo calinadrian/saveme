@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { safeStorage, shell } from 'electron'
-import { AppState, cleanFolder, Game, ProviderKind, Quota, remoteFolderFor, REMOTE_ROOT_LABEL, Settings } from '../shared/types'
+import { AppState, cleanFolder, Game, locationLabel, ProviderKind, Quota, remoteFolderFor, Settings } from '../shared/types'
 import { BackupEngine } from './backup/engine'
 import { watchDirs } from './backup/snapshot'
 import { LocalFolderProvider } from './cloud/local'
@@ -63,7 +63,7 @@ export class SaveMeApp {
       (id) => this.gameStarted(id),
       (id) => setTimeout(() => this.engine.enqueue(id, 'game-exit'), 10_000)
     )
-    this.files = new FileWatcher((id) => this.engine.enqueue(id, 'file-change'), (id) => this.procs.running.has(id))
+    this.files = new FileWatcher(this.folders, (id) => this.engine.enqueue(id, 'file-change'), (id) => this.procs.running.has(id))
     this.refreshWatchers()
     this.procs.start()
 
@@ -216,9 +216,7 @@ export class SaveMeApp {
   }
 
   describeLocation(kind: ProviderKind): string {
-    const folder = remoteFolderFor(this.db.data.settings, kind)
-    const root = kind === 'local' ? this.db.data.settings.localFolder ?? '' : REMOTE_ROOT_LABEL[kind]
-    return [root, folder].filter(Boolean).join('/')
+    return locationLabel(kind, this.db.data.settings.localFolder, remoteFolderFor(this.db.data.settings, kind))
   }
 
   /** A different storage or folder has a different history: compare every game afresh and back up. */

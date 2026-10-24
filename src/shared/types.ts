@@ -147,6 +147,12 @@ export function cleanFolder(folder: string): string {
     .join('/')
 }
 
+/** Where backups go, as shown to the user: `My Drive/SaveMe`, or `E:\Backups\SaveMe` for a folder. */
+export function locationLabel(kind: ProviderKind, localFolder: string | undefined, folder: string): string {
+  if (kind === 'local') return [localFolder?.replace(/[\\/]+$/, ''), folder.replace(/\//g, '\\')].filter(Boolean).join('\\')
+  return [REMOTE_ROOT_LABEL[kind], folder].filter(Boolean).join('/')
+}
+
 export function remoteFolderFor(settings: Pick<Settings, 'remoteFolder'>, kind: ProviderKind): string {
   return cleanFolder(settings.remoteFolder?.[kind] ?? DEFAULT_REMOTE_FOLDER[kind])
 }

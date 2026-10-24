@@ -107,7 +107,9 @@ export function Games({ state, navigate }: { state: AppState; navigate: Navigate
                 )}
               </div>
             )}
-            <StatusPill game={g} running={state.running.includes(g.id)} />
+            <span className="status-cell">
+              <StatusPill game={g} running={state.running.includes(g.id)} />
+            </span>
             <Toggle on={g.tracked} label={`${g.tracked ? 'Turn off' : 'Turn on'} automatic backup for ${g.name}`} onChange={(v) => run(() => api.setTracked(g.id, v))} />
           </div>
         ))}

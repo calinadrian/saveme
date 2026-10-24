@@ -43,7 +43,7 @@ export function registerIpc(
   handle('addCustomGame', (name: string, folder: string) => saveme.addCustomGame(name, folder))
   handle('updateSettings', (patch: Partial<Settings>) => {
     const s = saveme.updateSettings(patch)
-    if (patch.startAtLogin !== undefined) app.setLoginItemSettings({ openAtLogin: s.startAtLogin, args: ['--hidden'] })
+    if (patch.startAtLogin !== undefined && app.isPackaged) app.setLoginItemSettings({ openAtLogin: s.startAtLogin, args: ['--hidden'] })
     return s
   })
   handle('pickFolder', async (title: string) => {

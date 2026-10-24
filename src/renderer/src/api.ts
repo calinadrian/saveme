@@ -22,6 +22,7 @@ export interface SaveMeApi {
   openLicenses(): Promise<void>
   disconnect(): Promise<void>
   refreshQuota(): Promise<void>
+  refreshBackupUsage(): Promise<void>
   openSaveFolder(id: string): Promise<void>
   addCustomGame(name: string, folder: string): Promise<void>
   updateSettings(patch: Partial<Settings>): Promise<Settings>
@@ -42,23 +43,46 @@ declare global {
 
 export const api = window.saveme
 
+/** Keep the control retryable even if an IPC reply never arrives. The main scan expires earlier. */
+export async function refreshUsageWithTimeout(): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([api.refreshBackupUsage(), new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error('Storage check timed out. Try refreshing again.')), 25_000)
+    })])
+  } finally { clearTimeout(timer) }
+}
+
 export const SITE = 'https://calinadrian.github.io/saveme/'
 export const REPO = 'https://github.com/calinadrian/saveme'
 
-export function useAppState(): AppState | undefined {
-  const [state, setState] = useState<AppState>()
+export type AppLoadState = { status: 'loading' } | { status: 'error'; error: string } | { status: 'ready'; value: AppState }
+
+export function useAppState(): [AppLoadState, () => void] {
+  const [state, setState] = useState<AppLoadState>({ status: 'loading' })
+  const [attempt, setAttempt] = useState(0)
   useEffect(() => {
-    void api.state().then(setState)
-    return api.onState(setState)
-  }, [])
-  return state
+    let active = true
+    let receivedEvent = false
+    setState({ status: 'loading' })
+    const stop = api.onState(value => { receivedEvent = true; if (active) setState({ status: 'ready', value }) })
+    void api.state().then(value => { if (active && !receivedEvent) setState({ status: 'ready', value }) }).catch(error => {
+      if (active && !receivedEvent) setState({ status: 'error', error: (error as Error).message })
+    })
+    return () => { active = false; stop() }
+  }, [attempt])
+  return [state, () => setAttempt(n => n + 1)]
 }
 
 export function useUpdate(): UpdateState {
   const [update, setUpdate] = useState<UpdateState>({ current: '', status: 'dev' })
   useEffect(() => {
-    void api.updateState().then(setUpdate)
-    return api.onUpdate(setUpdate)
+    let active = true, receivedEvent = false
+    const stop = api.onUpdate(value => { receivedEvent = true; if (active) setUpdate(value) })
+    void api.updateState().then(value => { if (active && !receivedEvent) setUpdate(value) }).catch(error => {
+      if (active && !receivedEvent) setUpdate({ status: 'error', current: '', message: `Could not load update status: ${(error as Error).message}` })
+    })
+    return () => { active = false; stop() }
   }, [])
   return update
 }

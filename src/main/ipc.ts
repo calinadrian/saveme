@@ -42,6 +42,7 @@ export function registerIpc(
   handle('openLicenses', () => shell.openPath(path.join(resources, 'THIRD-PARTY-NOTICES.txt')))
   handle('disconnect', () => saveme.disconnect())
   handle('refreshQuota', () => saveme.refreshQuota())
+  handle('refreshBackupUsage', () => saveme.engine.refreshBackupUsage())
   handle('openSaveFolder', (id: string) => saveme.openSaveFolder(id))
   handle('addCustomGame', (name: string, folder: string) => saveme.addCustomGame(name, folder))
   handle('updateSettings', (patch: Partial<Settings>) => {

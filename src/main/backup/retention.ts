@@ -7,7 +7,8 @@ const DAY = 24 * 3600 * 1000
  * the last `keepDaily` days and `keepWeekly` weeks.
  */
 export function snapshotsToPrune(snapshots: SnapshotMeta[], policy: RetentionPolicy, now = Date.now()): SnapshotMeta[] {
-  const sorted = [...snapshots].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+  // Append order breaks equal timestamps: the most recently committed version wins the tie.
+  const sorted = [...snapshots].reverse().sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
   const keep = new Set<string>(sorted.slice(0, Math.max(1, policy.keepLast)).map((s) => s.id))
   const newestPerBucket = (size: number, count: number): void => {
     const seen = new Set<number>()

@@ -1,8 +1,8 @@
-import { ReactNode, useState } from 'react'
+import { ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { cleanFolder, locationLabel, remoteFolderFor, REMOTE_ROOT_LABEL } from '../../../shared/types'
 import type { AppState, ProviderKind, RetentionPolicy, UpdateState } from '../../../shared/types'
-import { api, REPO, SITE, timeAgo } from '../api'
-import { BrandMark, confirmDialog, Icon, IconName, PROVIDER_NAMES, PROVIDER_PLACE, ProviderIcon, Spinner, Toggle, useAction } from '../components'
+import { api, formatBytes, refreshUsageWithTimeout, REPO, SITE, timeAgo } from '../api'
+import { ActionFeedback, BrandMark, confirmDialog, Icon, IconName, InlineError, PROVIDER_NAMES, PROVIDER_PLACE, ProviderIcon, Spinner, Toggle, useAction } from '../components'
 import { ProviderPicker } from './Onboarding'
 
 /** Where people take back SaveMe's access to their account. */
@@ -12,7 +12,7 @@ const REVOKE: Partial<Record<ProviderKind, string>> = {
 }
 
 export function Settings({ state, update, onOpenUpdate }: { state: AppState; update: UpdateState; onOpenUpdate: () => void }) {
-  const [run, error] = useAction()
+  const [run, error, busy] = useAction()
   const [section, setSection] = useState('storage')
   const sections: { id: string; label: string; icon: IconName }[] = [
     { id: 'storage', label: 'Storage', icon: 'cloud' },
@@ -22,7 +22,6 @@ export function Settings({ state, update, onOpenUpdate }: { state: AppState; upd
     { id: 'about', label: 'About SaveMe', icon: 'info' }
   ]
   const s = state.settings
-  const setRetention = (patch: Partial<RetentionPolicy>): void => void run(() => api.updateSettings({ retention: { ...s.retention, ...patch } }))
   const kind = state.provider.kind
 
   return (
@@ -30,7 +29,7 @@ export function Settings({ state, update, onOpenUpdate }: { state: AppState; upd
       <header className="page-head">
         <h1>Settings</h1>
       </header>
-      {error && <div className="alert err">{error}</div>}
+      <InlineError error={error} />
       <div className="settings-layout">
         <nav className="settings-nav" aria-label="Settings categories">
           {sections.map(item => (
@@ -51,11 +50,12 @@ export function Settings({ state, update, onOpenUpdate }: { state: AppState; upd
                 <strong>{PROVIDER_NAMES[kind]}</strong>
                 <span className="muted">{kind === 'local' ? 'On this PC or a drive connected to it' : (state.provider.account ?? 'Connected')}</span>
               </div>
-              <button className="btn" onClick={() => run(() => api.refreshQuota())}>
+              <button className="btn" disabled={busy} onClick={() => run(() => api.refreshQuota())}>
                 <Icon name="refresh" size={16} /> Refresh
               </button>
               <button
                 className="btn danger-ghost"
+                disabled={busy || !!state.operation}
                 onClick={() =>
                   run(async () => {
                     const ok = await confirmDialog({
@@ -90,24 +90,23 @@ export function Settings({ state, update, onOpenUpdate }: { state: AppState; upd
       {section === 'history' && <Section
         icon="history"
         title="Version history"
-        sub={`Older versions are thinned out automatically. Each game keeps up to ${s.retention.keepLast + s.retention.keepDaily + s.retention.keepWeekly} versions.`}
+        sub="Choose how many backups to keep for each game."
       >
-        <div className="fields">
-          <NumberField label="Always keep the latest" suffix="versions" value={s.retention.keepLast} onChange={(v) => setRetention({ keepLast: v })} min={1} />
-          <NumberField label="Plus one a day for" suffix="days" value={s.retention.keepDaily} onChange={(v) => setRetention({ keepDaily: v })} />
-          <NumberField label="Plus one a week for" suffix="weeks" value={s.retention.keepWeekly} onChange={(v) => setRetention({ keepWeekly: v })} />
-        </div>
+        <HistorySettings state={state} />
       </Section>}
 
       {section === 'behavior' && <Section icon="settings" title="General" sub="How SaveMe works in the background.">
         <Setting title="Start with Windows" sub="Runs quietly in the tray so every play session is backed up.">
-          <Toggle on={s.startAtLogin} label="Start with Windows" onChange={(v) => run(() => api.updateSettings({ startAtLogin: v }))} />
+          <SettingSwitch setting="startAtLogin" value={s.startAtLogin} label="Start with Windows" />
+        </Setting>
+        <Setting title="Minimize to tray" sub="Hide SaveMe in the tray when minimized. Turn off to keep it on the taskbar.">
+          <SettingSwitch setting="minimizeToTray" value={s.minimizeToTray} label="Minimize to tray" />
         </Setting>
         <Setting title="Notifications" sub="When another PC has a newer save, a backup fails, new games are found, or storage is almost full.">
-          <Toggle on={s.notifications} label="Notifications" onChange={(v) => run(() => api.updateSettings({ notifications: v }))} />
+          <SettingSwitch setting="notifications" value={s.notifications} label="Notifications" />
         </Setting>
         <Setting title="Update automatically" sub="Checks GitHub for a new version every few hours and installs it while SaveMe is idle in the tray.">
-          <Toggle on={s.autoUpdate} label="Update automatically" onChange={(v) => run(() => api.updateSettings({ autoUpdate: v }))} />
+          <SettingSwitch setting="autoUpdate" value={s.autoUpdate} label="Update automatically" />
         </Setting>
       </Section>}
 
@@ -174,6 +173,13 @@ function Setting({ title, sub, children }: { title: string; sub: string; childre
       {children}
     </div>
   )
+}
+
+function SettingSwitch({ setting, value, label }: { setting: 'startAtLogin' | 'minimizeToTray' | 'notifications' | 'autoUpdate'; value: boolean; label: string }) {
+  const [run, error, busy, saved] = useAction()
+  const [on, setOn] = useState(value)
+  useEffect(() => { setOn(value) }, [value])
+  return <div className="setting-control"><Toggle disabled={busy} on={on} label={label} onChange={next => void run(async () => { const result = await api.updateSettings({ [setting]: next }); setOn(result[setting]) })} /><ActionFeedback busy={busy} saved={saved} error={error} /></div>
 }
 
 function updateLine(u: UpdateState): string {
@@ -248,6 +254,7 @@ function FolderSetting({ state }: { state: AppState }) {
   const [editing, setEditing] = useState(false)
   const [folder, setFolder] = useState(remoteFolderFor(state.settings, kind))
   const [run, error, busy] = useAction()
+  const field = useId()
   const save = (): Promise<void> =>
     run(async () => {
       const target = locationLabel(kind, state.settings.localFolder, cleanFolder(folder))
@@ -277,30 +284,84 @@ function FolderSetting({ state }: { state: AppState }) {
           </button>
         </div>
       ) : (
-        <div className="form">
+        <form className="form" onSubmit={e => { e.preventDefault(); if (!busy && (kind === 'onedrive' || cleanFolder(folder))) void save() }}>
+          <label htmlFor={field}>Backup subfolder</label>
           <div className="folder-field">
-            <span className="folder-root">{kind === 'local' ? state.settings.localFolder : REMOTE_ROOT_LABEL[kind]} /</span>
-            <input autoFocus value={folder} onChange={(e) => setFolder(e.target.value)} placeholder={kind === 'onedrive' ? '(optional subfolder)' : 'SaveMe'} />
-            <button className="btn ghost" onClick={() => setEditing(false)}>
+            <span id={`${field}-root`} className="folder-root">{kind === 'local' ? state.settings.localFolder : REMOTE_ROOT_LABEL[kind]} /</span>
+            <input id={field} aria-describedby={`${field}-root`} autoFocus disabled={busy} value={folder} onChange={(e) => setFolder(e.target.value)} placeholder={kind === 'onedrive' ? '(optional subfolder)' : 'SaveMe'} />
+            <button type="button" className="btn ghost" disabled={busy} onClick={() => setEditing(false)}>
               Cancel
             </button>
-            <button className="btn primary" disabled={busy || (kind !== 'onedrive' && !cleanFolder(folder))} onClick={save}>
+            <button type="submit" className="btn primary" disabled={busy || (kind !== 'onedrive' && !cleanFolder(folder))}>
               Save
             </button>
           </div>
-          {error && <div className="alert err">{error}</div>}
-        </div>
+          <InlineError error={error} />
+        </form>
       )}
     </div>
   )
 }
 
-function NumberField({ label, suffix, value, onChange, min = 0 }: { label: string; suffix: string; value: number; onChange: (v: number) => void; min?: number }) {
+function HistorySettings({ state }: { state: AppState }) {
+  const policy = state.settings.retention
+  const [applied, setApplied] = useState<RetentionPolicy>(policy)
+  const [draft, setDraft] = useState(String(policy.keepDaily || policy.keepWeekly || policy.keepLast < 2 ? 3 : policy.keepLast))
+  const [validation, setValidation] = useState<string>()
+  const [run, error, busy] = useAction()
+  const [saved, setSaved] = useState(false)
+  const [checkUsage, usageError, checkingUsage] = useAction()
+  const field = useId()
+  const input = useRef<HTMLInputElement>(null)
+  const restoreFocus = useRef(false)
+  useEffect(() => {
+    setApplied(policy)
+    setDraft(String(policy.keepDaily || policy.keepWeekly || policy.keepLast < 2 ? 3 : policy.keepLast))
+  }, [policy.keepLast, policy.keepDaily, policy.keepWeekly])
+  useEffect(() => { void checkUsage(refreshUsageWithTimeout) }, [])
+  useEffect(() => { if (!busy && restoreFocus.current) { restoreFocus.current = false; input.current?.focus() } }, [busy])
+  const count = Number(draft)
+  const valid = /^\d+$/.test(draft) && Number.isInteger(count) && count >= 2 && count <= 365
+  const legacy = applied.keepDaily > 0 || applied.keepWeekly > 0
+  const changed = legacy || count !== applied.keepLast
+  const save = (): void => {
+    setSaved(false)
+    if (!valid) { setValidation('Enter a whole number from 2 to 365.'); input.current?.focus(); return }
+    setValidation(undefined)
+    if (!changed) return
+    void run(async () => {
+      if (legacy || count < applied.keepLast) {
+        const ok = await confirmDialog({
+          title: 'Reduce backup history?',
+          message: <><p>Each game will keep its newest {count} backups. Older backups will be removed after that game’s next successful backup. Local game saves are unaffected.</p><p>Copies protected during a restore may temporarily exceed this limit.</p></>,
+          confirm: `Keep ${count} backups per game`, danger: true
+        })
+        restoreFocus.current = true
+        if (!ok) return
+      }
+      const result = await api.updateSettings({ retention: { keepLast: count, keepDaily: 0, keepWeekly: 0 } })
+      setApplied(result.retention)
+      setDraft(String(result.retention.keepLast))
+      setSaved(true)
+    })
+  }
+  const usage = state.backupUsage
+  const checkingLabel = usage?.status === 'loading' && usage.total !== undefined ? `Checking backup storage… ${usage.completed ?? 0} of ${usage.total} games` : 'Checking backup storage…'
   return (
-    <label className="number-field">
-      <span>{label}</span>
-      <input type="number" min={min} max={365} value={value} onChange={(e) => onChange(Math.max(min, Number(e.target.value) || 0))} />
-      <span className="muted">{suffix}</span>
-    </label>
+    <div className="history-settings">
+      {legacy ? <div className="alert warn">Your existing policy also keeps daily and weekly copies. It stays active until you apply a simple backup limit.</div> : <p className="muted">Current limit: {applied.keepLast} backups per game.</p>}
+      <form className="form history-form" noValidate onSubmit={e => { e.preventDefault(); save() }} aria-busy={busy}>
+        <div className="number-field">
+          <label htmlFor={field}>Backups to keep per game</label>
+          <input ref={input} id={field} inputMode="numeric" type="text" disabled={busy} value={draft} aria-invalid={!!validation} aria-describedby={`${field}-help${validation || error ? ` ${field}-error` : ''}`} onChange={e => { setDraft(e.target.value); setValidation(undefined); setSaved(false) }} />
+          <span className="muted small">2–365 backups</span>
+        </div>
+        <p id={`${field}-help`} className="history-explanation">{valid ? `Keeps the newest backup and ${count === 2 ? 'one previous version' : count === 3 ? 'two previous versions' : `${count - 1} previous versions`}. Older backups are removed automatically after a successful backup.` : 'Keep at least two backups so you have a previous version to restore.'}</p>
+        <div className="actions"><button type="submit" className="btn primary" disabled={busy || (!changed && valid)}>{busy ? 'Applying…' : legacy && count === 3 ? 'Switch to 3 backups per game' : 'Apply changes'}</button></div>
+        <ActionFeedback busy={busy} saved={saved} error={validation || error} errorId={`${field}-error`} />
+      </form>
+      <div className="backup-usage"><div><strong>Space used by backups</strong><span className="muted" role="status">{checkingUsage ? checkingLabel : !state.provider.connected ? 'Connect storage to see usage.' : usageError ? 'Storage check timed out or failed. Try refreshing again.' : usage?.status === 'ready' ? formatBytes(usage.bytes) : usage?.status === 'loading' ? checkingLabel : 'Storage usage unavailable. Try refreshing again.'}</span></div><button className="btn" disabled={checkingUsage || !state.provider.connected} onClick={() => checkUsage(refreshUsageWithTimeout)}>Refresh usage</button></div>
+      <p className="muted small">The limit is per game, not a fixed storage quota. Larger saves use more space. Restore safety copies may temporarily exceed the limit.</p>
+    </div>
   )
 }

@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useState } from 'react'
+import { ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { Game, GameStatus, ProviderKind } from '../../shared/types'
 import { useCover } from './artwork'
@@ -117,15 +117,15 @@ export function Cover({ game, size = 'sm' }: { game: Game; size?: 'sm' | 'lg' })
     return <img className={`cover ${size}`} src={art} alt="" />
   }
   return (
-    <div className={`cover ${size} letter`}>
+    <span className={`cover ${size} letter`} aria-hidden="true">
       {game.name.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase()}
-    </div>
+    </span>
   )
 }
 
-export function Toggle({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label?: string }) {
+export function Toggle({ on, onChange, label, disabled = false }: { on: boolean; onChange: (v: boolean) => void; label?: string; disabled?: boolean }) {
   return (
-    <button role="switch" aria-checked={on} aria-label={label} title={label} className={'toggle' + (on ? ' on' : '')} onClick={(e) => (e.stopPropagation(), onChange(!on))}>
+    <button type="button" disabled={disabled} role="switch" aria-checked={on} aria-label={label} title={label} className={'toggle' + (on ? ' on' : '')} onClick={(e) => (e.stopPropagation(), onChange(!on))}>
       <span />
     </button>
   )
@@ -135,37 +135,90 @@ export function Spinner({ size = 16 }: { size?: number }) {
   return <span className="spinner" style={{ width: size, height: size }} aria-hidden="true" />
 }
 
-export function useAction(): [(fn: () => Promise<unknown>) => Promise<void>, string | undefined, boolean] {
+export function InlineError({ error, id }: { error?: string; id?: string }) {
+  return error ? <div id={id} className="alert err" role="alert">{error}</div> : null
+}
+
+export function ActionFeedback({ busy, saved, error, errorId }: { busy: boolean; saved?: boolean; error?: string; errorId?: string }) {
+  return <><span className="action-feedback muted small" role="status">{busy ? 'Saving…' : saved && !error ? 'Saved' : ''}</span><InlineError error={error} id={errorId} /></>
+}
+
+export function AsyncToggle({ value, label, onChange }: { value: boolean; label: string; onChange: (value: boolean) => Promise<void> }) {
+  const [on, setOn] = useState(value)
+  const [run, error, busy, saved] = useAction()
+  useEffect(() => { setOn(value) }, [value])
+  return <div className="async-toggle"><Toggle on={on} label={label} disabled={busy} onChange={next => void run(async () => { await onChange(next); setOn(next) })} /><ActionFeedback busy={busy} saved={saved} error={error} /></div>
+}
+
+export function useAction(): [(fn: () => Promise<unknown>) => Promise<void>, string | undefined, boolean, boolean] {
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const pending = useRef(false)
   const run = async (fn: () => Promise<unknown>): Promise<void> => {
+    if (pending.current) return
+    pending.current = true
     setError(undefined)
+    setSaved(false)
     setBusy(true)
     try {
       await fn()
+      setSaved(true)
     } catch (e) {
       setError((e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
     } finally {
       setBusy(false)
+      pending.current = false
     }
   }
-  return [run, error, busy]
+  return [run, error, busy, saved]
 }
 
 // ---- dialogs ----
 
-export function Modal({ title, children, onClose, wide }: { title: string; children: ReactNode; onClose: () => void; wide?: boolean }) {
-  useEffect(() => {
+const modalStack: HTMLElement[] = []
+
+export function Modal({ title, children, onClose, wide, dismissible = true }: { title: string; children: ReactNode; onClose: () => void; wide?: boolean; dismissible?: boolean }) {
+  const modal = useRef<HTMLDivElement>(null)
+  const previousFocus = useRef(document.activeElement as HTMLElement | null)
+  const close = useRef(onClose)
+  close.current = dismissible ? onClose : () => {}
+  useLayoutEffect(() => {
+    const previous = previousFocus.current
+    const root = modal.current!
+    modalStack.push(root)
+    const background = [...document.body.children].filter(el => el !== root.parentElement) as HTMLElement[]
+    const inert = background.map(el => el.inert)
+    background.forEach(el => { el.inert = true })
+    const controls = (): HTMLElement[] => [...root.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]')].filter(el => el.getClientRects().length > 0)
+    if (!root.contains(document.activeElement)) (controls()[0] ?? root).focus()
     const key = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
+      if (modalStack.at(-1) !== root) return
+      if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); close.current() }
+      if (e.key === 'Tab') {
+        const items = controls()
+        const first = items[0] ?? root
+        const last = items[items.length - 1] ?? root
+        if (!root.contains(document.activeElement) || (e.shiftKey && document.activeElement === first) || (!e.shiftKey && document.activeElement === last)) {
+          e.preventDefault(); (e.shiftKey ? last : first).focus()
+        }
+      }
     }
-    window.addEventListener('keydown', key)
-    return () => window.removeEventListener('keydown', key)
-  }, [onClose])
+    const focus = (e: FocusEvent): void => { if (modalStack.at(-1) === root && !root.contains(e.target as Node)) (controls()[0] ?? root).focus() }
+    window.addEventListener('keydown', key, true)
+    document.addEventListener('focusin', focus)
+    return () => {
+      window.removeEventListener('keydown', key, true)
+      document.removeEventListener('focusin', focus)
+      modalStack.splice(modalStack.indexOf(root), 1)
+      background.forEach((el, i) => { el.inert = inert[i] })
+      if (previous?.isConnected) previous.focus()
+    }
+  }, [])
   return createPortal(
-    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className={'modal' + (wide ? ' wide' : '')} role="dialog" aria-modal="true" aria-label={title}>
-        <button className="icon-btn modal-close" aria-label="Close" onClick={onClose}>
+    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && close.current()}>
+      <div ref={modal} tabIndex={-1} className={'modal' + (wide ? ' wide' : '')} role="dialog" aria-modal="true" aria-label={title}>
+        <button className="icon-btn modal-close" disabled={!dismissible} aria-label="Close" onClick={onClose}>
           <Icon name="close" size={16} />
         </button>
         {children}

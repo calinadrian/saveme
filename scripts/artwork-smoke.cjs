@@ -19,10 +19,10 @@ const settingsChanges = []
 let online = false
 const game = (id, name, steamId) => ({ id, name, steamId, tracked: true, status: 'never', roots: [], sizeBytes: 0, fileCount: 0 })
 const state = {
-  machine: 'Preview PC', settings: { provider: 'local', localFolder: 'C:/Backups', startAtLogin: false, notifications: true, autoUpdate: false, retention: { keepLast: 10, keepDaily: 14, keepWeekly: 8 }, extraLibraryFolders: [] },
+  machine: 'Preview PC', settings: { provider: 'local', localFolder: 'C:/Backups', startAtLogin: false, minimizeToTray: true, notifications: true, autoUpdate: false, retention: { keepLast: 10, keepDaily: 14, keepWeekly: 8 }, extraLibraryFolders: [] },
   provider: { kind: 'local', connected: true, location: 'C:\\Backups\\SaveMe', configured: { local: true } },
   games: [game('minecraft', 'Minecraft: Java Edition'), game('aion', 'Aion 2', 3393110), game('battlefield', 'Battlefield 6', 2807960), game('forza', 'Forza Horizon 6', 2483190), game('missing', 'Custom game without artwork', 0)],
-  activity: [], scanning: true, scanProgress: 'Looking for saves…', running: [], queue: []
+  activity: [], scanning: true, scanProgress: 'Looking for saves…', running: [], queue: [], backupUsage: { status: 'ready', bytes: 0 }
 }
 if (sitePreview) {
   state.games = state.games.filter(g => g.id !== 'missing').map((g, i) => ({
@@ -45,8 +45,8 @@ if (libraryPreview) {
 }
 const preload = path.join(output, 'preload.cjs')
 fs.writeFileSync(preload, `const { contextBridge, ipcRenderer } = require('electron'); contextBridge.exposeInMainWorld('saveme', {
-state: async () => (${JSON.stringify(state)}), updateState: async () => ({status: 'dev', current: '0.1.4'}),
-artwork: id => ipcRenderer.invoke('artwork', id), updateSettings: patch => ipcRenderer.invoke('updateSettings', patch), onState: () => () => {}, onUpdate: () => () => {}, onNavigate: () => () => {}, history: async () => undefined
+state: async () => (${JSON.stringify(state)}), updateState: async () => ({status: 'dev', current: ${JSON.stringify(JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version)}}),
+artwork: id => ipcRenderer.invoke('artwork', id), updateSettings: patch => ipcRenderer.invoke('updateSettings', patch), onState: () => () => {}, onUpdate: () => () => {}, onNavigate: () => () => {}, history: async () => undefined, refreshBackupUsage: async () => {}
 });`)
 let win
 const waitFor = async (script) => {
@@ -139,7 +139,7 @@ app.whenReady().then(async () => {
     fs.writeFileSync(path.join(output, name + '.png'), (await win.webContents.capturePage()).toPNG())
   }
   await capture('games')
-  await win.webContents.executeJavaScript(`document.querySelectorAll('.game-row')[1].click()`)
+  await win.webContents.executeJavaScript(`document.querySelectorAll('.game-open')[1].click()`)
   await waitFor(`!!document.querySelector('img.cover.lg')`)
   assert.equal(await win.webContents.executeJavaScript(`!!document.querySelector('.detail-backdrop')`), false)
   await capture('detail')
@@ -152,7 +152,7 @@ app.whenReady().then(async () => {
     await capture('settings-' + category)
   }
   await win.webContents.executeJavaScript(`document.querySelectorAll('.settings-nav button')[2].click()`)
-  await waitFor(`document.querySelectorAll('.setting .toggle').length === 3`)
+  await waitFor(`document.querySelectorAll('.setting .toggle').length === 4`)
   await win.webContents.executeJavaScript(`document.querySelector('.setting .toggle').click()`)
   assert.deepEqual(settingsChanges[0], { startAtLogin: true })
   await capture('settings-general')

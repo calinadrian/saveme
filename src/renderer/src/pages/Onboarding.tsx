@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { cleanFolder, locationLabel, remoteFolderFor, REMOTE_ROOT_LABEL } from '../../../shared/types'
 import type { AppState, ProviderKind } from '../../../shared/types'
 import { api, formatBytes, plural, SITE } from '../api'
-import { BrandMark, Icon, IconName, Spinner, useAction } from '../components'
+import { BrandMark, Icon, IconName, InlineError, Spinner, useAction } from '../components'
 
 const PROVIDERS: { kind: ProviderKind; name: string; free: string; note: string; icon: IconName }[] = [
   { kind: 'gdrive', name: 'Google Drive', free: '15 GB free', note: 'SaveMe can only see the files it creates.', icon: 'cloud' },
@@ -12,11 +12,15 @@ const PROVIDERS: { kind: ProviderKind; name: string; free: string; note: string;
 
 export function ProviderPicker({ state, onCancel }: { state: AppState; onCancel?: () => void }) {
   const [selected, setSelected] = useState<ProviderKind>()
+  const [busy, setBusy] = useState(false)
+  const group = useId()
   return (
     <>
-      <div className="providers" role="radiogroup" aria-label="Where backups go">
+      <fieldset className="providers" disabled={busy}>
+        <legend className="sr-only">Where backups go</legend>
         {PROVIDERS.map((p) => (
-          <button key={p.kind} role="radio" aria-checked={selected === p.kind} className={`provider ${p.kind}${selected === p.kind ? ' selected' : ''}`} onClick={() => setSelected(p.kind)}>
+          <label key={p.kind} className={`provider ${p.kind}${selected === p.kind ? ' selected' : ''}`}>
+            <input type="radio" name={group} value={p.kind} checked={selected === p.kind} onChange={() => setSelected(p.kind)} aria-label={p.name} />
             <span className="provider-top">
               <span className="provider-logo">
                 <Icon name={p.icon} size={20} />
@@ -24,21 +28,22 @@ export function ProviderPicker({ state, onCancel }: { state: AppState; onCancel?
               <span className="provider-free">{p.free}</span>
             </span>
             <strong>{p.name}</strong>
-            <span className="muted">{state.provider.configured[p.kind] ? p.note : 'One-time setup, then sign in'}</span>
-          </button>
+            <span className="muted">{state.provider.configured[p.kind] ? p.note : `Requires your own ${p.kind === 'gdrive' ? 'Google' : 'Microsoft'} app registration, then sign-in.`}</span>
+          </label>
         ))}
-      </div>
-      {selected && (
+      </fieldset>
+      {PROVIDERS.map(provider => <div key={provider.kind} hidden={selected !== provider.kind}>
         <ConnectPanel
-          key={selected}
-          kind={selected}
+          kind={provider.kind}
           state={state}
+          onBusy={setBusy}
+          active={selected === provider.kind}
           onCancel={() => {
             setSelected(undefined)
             onCancel?.()
           }}
         />
-      )}
+      </div>)}
     </>
   )
 }
@@ -59,8 +64,9 @@ const MICROSOFT_STEPS = [
  * Chooses where backups go, then connects. For Google Drive / OneDrive without a client ID yet,
  * it first walks through the one-time app registration.
  */
-function ConnectPanel({ kind, state, onCancel }: { kind: ProviderKind; state: AppState; onCancel: () => void }) {
+function ConnectPanel({ kind, state, onCancel, onBusy, active }: { kind: ProviderKind; state: AppState; onCancel: () => void; onBusy: (busy: boolean) => void; active: boolean }) {
   const [run, error, busy] = useAction()
+  const [action, setAction] = useState<'connect' | 'browse' | 'link'>('connect')
   const [id, setId] = useState('')
   const [secret, setSecret] = useState('')
   const [localRoot, setLocalRoot] = useState(state.settings.localFolder ?? '')
@@ -69,17 +75,20 @@ function ConnectPanel({ kind, state, onCancel }: { kind: ProviderKind; state: Ap
   const google = kind === 'gdrive'
   const name = PROVIDERS.find((p) => p.kind === kind)!.name
   const clean = cleanFolder(folder)
-  const ready = (kind === 'onedrive' || clean) && (kind !== 'local' || localRoot) && (!needsSetup || (id.trim() && (!google || secret.trim())))
+  const ready = (kind === 'onedrive' || clean) && (kind !== 'local' || localRoot.trim()) && (!needsSetup || (id.trim() && (!google || secret.trim())))
+  const field = useId()
+  useEffect(() => { if (active) onBusy(busy) }, [active, busy, onBusy])
 
   const connect = (): Promise<void> =>
     run(async () => {
+      setAction('connect')
       if (kind === 'local') await api.connect('local', localRoot, clean)
       else if (needsSetup) await api.configureAndConnect(kind, google ? { googleClientId: id, googleClientSecret: secret } : { microsoftClientId: id }, clean)
       else await api.connect(kind, undefined, clean)
     })
 
   return (
-    <div className="card form setup">
+    <form className="card form setup" onSubmit={e => { e.preventDefault(); if (ready && !busy) void connect() }} aria-busy={busy}>
       <h2 className="setup-title">{kind === 'local' ? 'Back up to a folder' : `Connect ${name}`}</h2>
       {needsSetup && (
         <>
@@ -91,7 +100,7 @@ function ConnectPanel({ kind, state, onCancel }: { kind: ProviderKind; state: Ap
               <li key={s.text}>
                 {s.text}
                 {s.url && (
-                  <button className="link" onClick={() => api.openUrl(s.url!)}>
+                  <button type="button" className="link" disabled={busy} onClick={() => run(async () => { setAction('link'); await api.openUrl(s.url!) })}>
                     Open <Icon name="external" size={13} />
                   </button>
                 )}
@@ -100,33 +109,33 @@ function ConnectPanel({ kind, state, onCancel }: { kind: ProviderKind; state: Ap
           </ol>
           <label>
             {google ? 'Client ID' : 'Application (client) ID'}
-            <input value={id} onChange={(e) => setId(e.target.value)} placeholder={google ? '1234…apps.googleusercontent.com' : '00000000-0000-0000-0000-000000000000'} />
+            <input required disabled={busy} value={id} onChange={(e) => setId(e.target.value)} placeholder={google ? '1234…apps.googleusercontent.com' : '00000000-0000-0000-0000-000000000000'} />
           </label>
           {google && (
             <label>
               Client secret
-              <input value={secret} onChange={(e) => setSecret(e.target.value)} placeholder="GOCSPX-…" type="password" />
+              <input required disabled={busy} value={secret} onChange={(e) => setSecret(e.target.value)} placeholder="GOCSPX-…" type="password" />
             </label>
           )}
         </>
       )}
 
       {kind === 'local' && (
-        <label>
-          Drive or folder
+        <div className="field">
+          <label htmlFor={`${field}-root`}>Drive or folder</label>
           <div className="picker">
-            <input value={localRoot} onChange={(e) => setLocalRoot(e.target.value)} placeholder="E:\Backups" />
-            <button className="btn" onClick={async () => setLocalRoot((await api.pickFolder('Where should SaveMe keep backups?')) ?? localRoot)}>
+            <input id={`${field}-root`} required disabled={busy} value={localRoot} onChange={(e) => setLocalRoot(e.target.value)} placeholder="E:\Backups" />
+            <button type="button" className="btn" disabled={busy} onClick={() => run(async () => { setAction('browse'); setLocalRoot((await api.pickFolder('Where should SaveMe keep backups?')) ?? localRoot) })}>
               <Icon name="folder" size={16} /> Browse
             </button>
           </div>
-        </label>
+        </div>
       )}
       <label>
         Backup folder
         <div className="folder-field">
           {kind !== 'local' && <span className="folder-root">{REMOTE_ROOT_LABEL[kind]} /</span>}
-          <input value={folder} onChange={(e) => setFolder(e.target.value)} placeholder={kind === 'onedrive' ? '(optional subfolder)' : 'SaveMe'} />
+          <input disabled={busy} value={folder} onChange={(e) => setFolder(e.target.value)} placeholder={kind === 'onedrive' ? '(optional subfolder)' : 'SaveMe'} />
         </div>
       </label>
       <p className="muted small">
@@ -134,16 +143,17 @@ function ConnectPanel({ kind, state, onCancel }: { kind: ProviderKind; state: Ap
         {kind === 'onedrive' && ' OneDrive only lets SaveMe use its own Apps/SaveMe folder.'} The folder is created if it doesn't exist.
       </p>
 
-      {error && <div className="alert err">{error}</div>}
+      <InlineError error={error} />
+      <span role="status" className="muted small">{busy ? action === 'browse' ? 'Choose a folder in the dialog…' : action === 'link' ? 'Opening setup instructions…' : (kind === 'local' ? 'Connecting…' : 'Finish signing in in your browser. Your entries are kept if sign-in fails.') : ''}</span>
       <div className="actions">
-        <button className="btn ghost" onClick={onCancel}>
+        <button type="button" className="btn ghost" disabled={busy} onClick={onCancel}>
           Cancel
         </button>
-        <button className="btn primary" disabled={!ready || busy} onClick={connect}>
-          {busy ? (kind === 'local' ? 'Connecting…' : 'Waiting for sign-in in your browser…') : kind === 'local' ? 'Use this folder' : needsSetup ? 'Save and sign in' : 'Sign in'}
+        <button type="submit" className="btn primary" disabled={!ready || busy}>
+          {busy && action === 'connect' ? (kind === 'local' ? 'Connecting…' : 'Waiting for sign-in in your browser…') : kind === 'local' ? 'Use this folder' : needsSetup ? 'Save and sign in' : 'Sign in'}
         </button>
       </div>
-    </div>
+    </form>
   )
 }
 

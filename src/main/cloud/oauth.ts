@@ -83,6 +83,7 @@ export async function tokenRequest(cfg: OAuthConfig, body: Record<string, string
   if (cfg.clientSecret) form.set('client_secret', cfg.clientSecret)
   if (body.grant_type === 'refresh_token') form.set('scope', cfg.scope)
   const res = await fetch(cfg.tokenUrl, {
+    signal: AbortSignal.timeout(20_000),
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: form
@@ -94,6 +95,8 @@ export async function tokenRequest(cfg: OAuthConfig, body: Record<string, string
 /** Keeps an access token fresh using a stored refresh token. */
 export class OAuthSession {
   private access?: { token: string; expiresAt: number }
+  private refreshing?: Promise<string>
+  private generation = 0
 
   constructor(
     private cfg: OAuthConfig,
@@ -106,20 +109,34 @@ export class OAuthSession {
   }
 
   async signIn(openExternal: (url: string) => void): Promise<void> {
-    this.accept(await authorize(this.cfg, openExternal))
+    const generation = ++this.generation
+    this.refreshing = undefined
+    const tokens = await authorize(this.cfg, openExternal)
+    if (generation !== this.generation) throw new Error('Sign-in was cancelled')
+    this.accept(tokens)
   }
 
   signOut(): void {
+    this.generation++
+    this.refreshing = undefined
     this.access = undefined
     this.saveRefresh(undefined)
   }
 
   async token(): Promise<string> {
     if (this.access && Date.now() < this.access.expiresAt - 60_000) return this.access.token
+    if (this.refreshing) return this.refreshing
     const refresh = this.loadRefresh()
     if (!refresh) throw new Error('Not signed in')
-    this.accept(await tokenRequest(this.cfg, { grant_type: 'refresh_token', refresh_token: refresh }))
-    return this.access!.token
+    const generation = this.generation
+    const work = tokenRequest(this.cfg, { grant_type: 'refresh_token', refresh_token: refresh }).then(tokens => {
+      if (generation !== this.generation) throw new Error('Sign-in changed during token refresh')
+      this.accept(tokens)
+      return this.access!.token
+    })
+    this.refreshing = work
+    try { return await work }
+    finally { if (this.refreshing === work) this.refreshing = undefined }
   }
 
   private accept(t: TokenResponse): void {

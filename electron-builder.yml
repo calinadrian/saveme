@@ -3,7 +3,7 @@ productName: SaveMe
 copyright: Copyright © 2026 calinadrian
 directories:
   buildResources: build
-  output: dist
+  output: dist/main
 files:
   - out/**
   - resources/**

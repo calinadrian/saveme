@@ -45,17 +45,23 @@ export class LocalFolderProvider implements StorageProvider {
   async get(p: string): Promise<Buffer | undefined> {
     try {
       return await fs.promises.readFile(path.join(this.root, p))
-    } catch {
-      return undefined
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+      throw e
     }
   }
 
-  async list(dir: string): Promise<RemoteEntry[]> {
+  async list(dir: string, signal?: AbortSignal): Promise<RemoteEntry[]> {
+    signal?.throwIfAborted()
     try {
       const entries = await fs.promises.readdir(path.join(this.root, dir), { withFileTypes: true })
-      return entries.map((e) => ({ name: e.name, size: e.isFile() ? fs.statSync(path.join(this.root, dir, e.name)).size : 0 }))
-    } catch {
-      return []
+      return await Promise.all(entries.map(async e => {
+        signal?.throwIfAborted()
+        return { name: e.name, size: e.isFile() ? (await fs.promises.stat(path.join(this.root, dir, e.name))).size : 0 }
+      }))
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return []
+      throw e
     }
   }
 

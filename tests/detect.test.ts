@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { compactManifest } from '../src/main/detect/manifest'
+import { applyManifestCorrections, compactManifest } from '../src/main/detect/manifest'
 import { norm, Portable } from '../src/main/detect/paths'
 import { fakeFolders } from './helpers'
 import { expandFiles, literalPrefix, resolveGame, resolveTemplate } from '../src/main/detect/scanner'
@@ -16,6 +16,19 @@ function write(file: string, content = 'x'): void {
 }
 
 const tmp = (): string => fs.mkdtempSync(path.join(os.tmpdir(), 'saveme-'))
+
+it('detects Death Stranding 2 AppData saves with an older cached manifest', () => {
+  const folders = fakeFolders(tmp())
+  const save = `${folders.winLocalAppData}/KojimaProductions/DeathStranding2/123/manualsave0.dat`
+  write(save, 'progress')
+  const manifest = applyManifestCorrections([{
+    name: 'Death Stranding 2: On the Beach', steamId: 3280350,
+    installDir: [], files: [{ path: '<winDocuments>/DEATH STRANDING 2 - ON THE BEACH' }]
+  }])
+  expect(resolveGame(manifest[0], folders).files).toContain(norm(save))
+  expect(manifest[0].files).toHaveLength(2)
+  expect(applyManifestCorrections(manifest)[0].files).toHaveLength(2)
+})
 
 describe('placeholders', () => {
   const folders = fakeFolders('C:/root')

@@ -3,6 +3,8 @@ import path from 'node:path'
 import { safeStorage, shell } from 'electron'
 import { AppState, cleanFolder, Game, locationLabel, ProviderKind, Quota, remoteFolderFor, Settings } from '../shared/types'
 import { BackupEngine } from './backup/engine'
+import { recoverRestores } from './backup/restore'
+import { validateRetention } from '../shared/settings'
 import { watchDirs } from './backup/snapshot'
 import { LocalFolderProvider } from './cloud/local'
 import { GoogleDriveProvider } from './cloud/gdrive'
@@ -48,6 +50,8 @@ export class SaveMeApp {
   }
 
   async init(): Promise<void> {
+    const recovered = await recoverRestores(this.db.recoveryDirectory)
+    if (recovered) this.db.log({ kind: 'error', message: `Recovered ${recovered} interrupted restore(s). Previous local saves were put back before automatic backups resumed.` })
     this.folders = await getKnownFolders()
     this.provider = this.makeProvider(this.db.data.settings.provider)
     this.engine = new BackupEngine({
@@ -98,6 +102,8 @@ export class SaveMeApp {
     const p = this.provider
     return {
       machine: this.db.machine,
+      operation: this.engine?.operation,
+      recoveryWarning: this.engine?.recoveryRequired ?? this.db.recoveryWarning,
       settings: this.db.data.settings,
       games: Object.values(this.db.data.games).sort((a, b) => a.name.localeCompare(b.name)),
       activity: this.db.data.activity.slice(0, 50),
@@ -114,6 +120,7 @@ export class SaveMeApp {
       },
       quota: this.quota,
       saveMeBytes: this.engine?.saveMeBytes ?? 0,
+      backupUsage: this.engine?.backupUsage ?? { status: 'loading' },
       scanning: this.scanning,
       scanProgress: this.scanProgress,
       running: [...(this.procs?.running ?? [])],
@@ -181,30 +188,42 @@ export class SaveMeApp {
 
   /** Signs in (or opens the folder) and starts backing up into `remoteFolder` inside that storage. */
   async connect(kind: ProviderKind, localFolder?: string, remoteFolder?: string): Promise<void> {
-    const settings = this.db.data.settings
-    if (kind === 'local') {
-      if (!localFolder) throw new Error('Choose a folder')
-      settings.localFolder = norm(localFolder)
-    }
-    if (remoteFolder !== undefined) this.setRemoteFolderSetting(kind, remoteFolder)
-    const p = this.makeProvider(kind)
-    if (!p) throw new Error(`${kind === 'gdrive' ? 'Google Drive' : 'OneDrive'} is not configured. See docs/SETUP.md.`)
-    await p.connect()
-    if (this.provider && this.provider.kind !== kind) await this.provider.disconnect()
-    this.provider = p
-    settings.provider = kind
-    this.db.log({ kind: 'info', message: `Connected to ${p.label}${p.account() ? ` (${p.account()})` : ''}, saving to ${this.describeLocation(kind)}` })
+    await this.engine.exclusive({ kind: 'storage' }, async () => {
+      const settings = this.db.data.settings
+      const previous = { localFolder: settings.localFolder, remoteFolder: settings.remoteFolder, provider: settings.provider }
+      try {
+        if (kind === 'local') {
+          if (!localFolder) throw new Error('Choose a folder')
+          settings.localFolder = norm(localFolder)
+        }
+        if (remoteFolder !== undefined) this.setRemoteFolderSetting(kind, remoteFolder)
+        const p = this.makeProvider(kind)
+        if (!p) throw new Error(`${kind === 'gdrive' ? 'Google Drive' : 'OneDrive'} is not configured. See docs/SETUP.md.`)
+        await p.connect()
+        if (this.provider && this.provider.kind !== kind) await this.provider.disconnect()
+        this.provider = p
+        settings.provider = kind
+      } catch (e) { Object.assign(settings, previous); this.db.flush(); throw e }
+      this.db.log({ kind: 'info', message: `Connected to ${this.provider!.label}, saving to ${this.describeLocation(kind)}` })
+      this.resetHistory()
+    })
     await this.startOver()
   }
 
   /** Moves future backups to another folder in the same storage. Backups already in the old folder stay there. */
   async setRemoteFolder(remoteFolder: string): Promise<void> {
-    const kind = this.provider?.kind
-    if (!kind) throw new Error('Connect a storage first')
-    this.setRemoteFolderSetting(kind, remoteFolder)
-    this.provider = this.makeProvider(kind)
-    await this.provider?.connect()
-    this.db.log({ kind: 'info', message: `Backups now go to ${this.describeLocation(kind)}` })
+    await this.engine.exclusive({ kind: 'storage' }, async () => {
+      const kind = this.provider?.kind
+      if (!kind) throw new Error('Connect a storage first')
+      const previous = this.db.data.settings.remoteFolder
+      this.setRemoteFolderSetting(kind, remoteFolder)
+      const next = this.makeProvider(kind)
+      try { await next?.connect() }
+      catch (e) { this.db.data.settings.remoteFolder = previous; this.db.flush(); throw e }
+      this.provider = next
+      this.db.log({ kind: 'info', message: `Backups now go to ${this.describeLocation(kind)}` })
+      this.resetHistory()
+    })
     await this.startOver()
   }
 
@@ -220,27 +239,41 @@ export class SaveMeApp {
   }
 
   /** A different storage or folder has a different history: compare every game afresh and back up. */
-  private async startOver(): Promise<void> {
-    for (const g of Object.values(this.db.data.games)) Object.assign(g, { lastSnapshotId: undefined, lastHashes: undefined, newerSnapshot: undefined, status: 'never' })
+  private resetHistory(): void {
+    for (const g of Object.values(this.db.data.games)) Object.assign(g, { lastSnapshotId: undefined, lastHashes: undefined, lastBackupAt: undefined, newerSnapshot: undefined, error: undefined, status: 'never' })
+    this.db.data.maintenance = {}
     this.engine.saveMeBytes = 0
-    await this.refreshQuota()
-    await this.engine.checkRemote()
+    this.engine.invalidateBackupUsage()
+    this.quota = undefined
+    this.db.flush()
+  }
+
+  private async startOver(): Promise<void> {
+    await this.safe(() => this.refreshQuota())
+    await this.safe(() => this.engine.checkRemote())
     this.backupAll('first-backup')
+    void this.engine.kick()
     this.changed()
   }
 
   async disconnect(): Promise<void> {
-    await this.provider?.disconnect()
-    this.provider = undefined
-    this.quota = undefined
-    this.db.data.settings.provider = undefined
-    this.db.save()
-    this.changed()
+    await this.engine.exclusive({ kind: 'storage' }, async () => {
+      await this.provider?.disconnect()
+      this.provider = undefined
+      this.engine.invalidateBackupUsage()
+      this.quota = undefined
+      this.db.data.settings.provider = undefined
+      this.db.save()
+      this.changed()
+    })
   }
 
   async refreshQuota(): Promise<void> {
-    if (!this.provider?.isConnected()) return
-    this.quota = await this.provider.quota()
+    const provider = this.provider
+    if (!provider?.isConnected()) return
+    const quota = await provider.quota()
+    if (provider !== this.provider) return
+    this.quota = quota
     if (this.quota.totalBytes && this.quota.usedBytes && this.quota.usedBytes / this.quota.totalBytes > 0.9) {
       this.notify('Cloud storage almost full', `${this.provider.label} is over 90% full. Lower the number of kept versions in Settings.`)
     }
@@ -332,8 +365,12 @@ export class SaveMeApp {
   }
 
   updateSettings(patch: Partial<Settings>): Settings {
+    if (patch.retention !== undefined) validateRetention(patch.retention)
+    const previous = { ...this.db.data.settings }
     Object.assign(this.db.data.settings, patch)
-    this.db.save()
+    // Settings are infrequent and must survive an immediate quit after the IPC reply.
+    try { this.db.flush() }
+    catch (error) { Object.assign(this.db.data.settings, previous); throw error }
     this.changed()
     return this.db.data.settings
   }
@@ -351,6 +388,7 @@ export class SaveMeApp {
   }
 
   shutdown(): void {
+    this.engine?.stop()
     this.procs?.stop()
     void this.files?.close()
     this.db.flush()

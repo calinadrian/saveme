@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react'
 import type { AppState, GameIndex } from '../../../shared/types'
 import type { Navigate } from '../App'
 import { api, formatBytes, plural, timeAgo, winPath } from '../api'
-import { Cover, Icon, StatusPill, STORE_NAMES, Toggle, useAction } from '../components'
+import { AsyncToggle, Cover, Icon, InlineError, StatusPill, STORE_NAMES, useAction } from '../components'
 import { Empty } from './Dashboard'
-import { confirmRestore } from './Games'
+import { confirmKeepLocal, confirmRestore } from './Games'
 
 const TRIGGERS: Record<string, string> = {
   'game-exit': 'After playing',
@@ -18,17 +18,24 @@ export function GameDetail({ state, id, navigate }: { state: AppState; id: strin
   const game = state.games.find((g) => g.id === id)
   const [index, setIndex] = useState<GameIndex>()
   const [loading, setLoading] = useState(true)
+  const [historyError, setHistoryError] = useState<string>()
+  const [historyAttempt, setHistoryAttempt] = useState(0)
   const [run, error, busy] = useAction()
   const running = state.running.includes(id)
 
   useEffect(() => {
+    let cancelled = false
     setLoading(true)
+    setHistoryError(undefined)
+    setIndex(undefined)
+    if (!state.provider.connected) { setLoading(false); return }
     api
       .history(id)
-      .then(setIndex)
-      .catch(() => setIndex(undefined))
-      .finally(() => setLoading(false))
-  }, [id, game?.lastSnapshotId])
+      .then(value => { if (!cancelled) setIndex(value) })
+      .catch(e => { if (!cancelled) setHistoryError((e as Error).message) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [id, game?.lastSnapshotId, state.provider.connected, state.provider.location, historyAttempt])
 
   if (!game) {
     return (
@@ -43,9 +50,10 @@ export function GameDetail({ state, id, navigate }: { state: AppState; id: strin
 
   const snapshots = [...(index?.snapshots ?? [])].sort((a, b) => (b.createdAt > a.createdAt ? 1 : -1))
   const cloudBytes = snapshots.reduce((n, s) => n + s.zipBytes, 0)
-  const restore = (snapshotId: string, label: string): void =>
+  const restore = (snapshotId: string): void =>
     void run(async () => {
-      if (await confirmRestore(game, label)) await api.restore(id, snapshotId)
+      const snapshot = index?.snapshots.find(s => s.id === snapshotId) ?? game.newerSnapshot
+      if (snapshot?.id === snapshotId && await confirmRestore(game, snapshot, state.machine)) await api.restore(id, snapshotId)
     })
   return (
     <div className="page">
@@ -60,26 +68,27 @@ export function GameDetail({ state, id, navigate }: { state: AppState; id: strin
             <StatusPill game={game} running={running} />
             {game.store && <span className="store">{STORE_NAMES[game.store]}</span>}
             <span className="muted">
-              {formatBytes(game.sizeBytes)} on this PC · {formatBytes(cloudBytes)} in {plural(snapshots.length, 'version')}
+              {formatBytes(game.sizeBytes)} on this PC · {loading ? 'Loading versions…' : historyError ? 'History unavailable' : !state.provider.connected ? 'Storage disconnected' : `${formatBytes(cloudBytes)} in ${plural(snapshots.length, 'version')}`}
             </span>
           </div>
           <div className="actions">
-            <button className="btn primary" disabled={busy || !game.tracked || !state.provider.connected || !game.roots.length} onClick={() => run(() => api.backupNow(id))}>
+            <button className="btn primary" disabled={busy || !!state.operation || !game.tracked || !state.provider.connected || !game.roots.length} onClick={() => run(() => api.backupNow(id))}>
               <Icon name="upload" size={16} /> Back up now
             </button>
             <button className="btn" disabled={!game.roots.length} onClick={() => run(() => api.openSaveFolder(id))}>
               <Icon name="folder" size={16} /> Open save folder
             </button>
-            <label className="inline-toggle">
-              <Toggle on={game.tracked} label="Automatic backup" onChange={(v) => run(() => api.setTracked(id, v))} />
+            <div className="inline-toggle">
+              <AsyncToggle value={game.tracked} label="Automatic backup" onChange={v => api.setTracked(id, v)} />
               Automatic backup
-            </label>
+            </div>
           </div>
         </div>
       </header>
-      {error && <div className="alert err">{error}</div>}
+      <InlineError error={error} />
+      {(!game.roots.length || !game.tracked || !state.provider.connected || !!state.operation) && <p className="muted small action-reason">{!state.provider.connected ? 'Connect storage in Settings to back up or restore.' : state.operation ? 'Wait for the current operation to finish.' : !game.roots.length ? 'Save files have not been found on this PC. You can restore a version if its destinations are available.' : 'Turn on automatic backup to enable Back up now.'}</p>}
       {game.status === 'error' && game.error && (
-        <div className="alert err">
+        <div className="alert err" role="alert">
           <Icon name="alert" /> <span className="alert-text">The last backup failed: {game.error}</span>
         </div>
       )}
@@ -95,11 +104,11 @@ export function GameDetail({ state, id, navigate }: { state: AppState; id: strin
             <strong>{game.newerSnapshot.machine}</strong> has a newer save from {timeAgo(game.newerSnapshot.createdAt)}.
           </span>
           <span className="alert-actions">
-            <button className="btn small primary" disabled={running || busy} onClick={() => restore(game.newerSnapshot!.id, `the save from ${game.newerSnapshot!.machine}`)}>
-              Use that save
+            <button className="btn small primary" disabled={running || busy || !!state.operation} onClick={() => restore(game.newerSnapshot!.id)}>
+              Review cloud save
             </button>
             {game.roots.length > 0 && (
-              <button className="btn small" onClick={() => run(() => api.keepLocal(id))}>
+              <button className="btn small" disabled={busy || !!state.operation} onClick={() => run(async () => { if (await confirmKeepLocal(game)) await api.keepLocal(id) })}>
                 Keep this PC's
               </button>
             )}
@@ -112,8 +121,9 @@ export function GameDetail({ state, id, navigate }: { state: AppState; id: strin
           <h2>Version history</h2>
           <span className="muted small">Restoring backs up your current save first.</span>
         </div>
-        {loading && <p className="muted pad">Loading…</p>}
-        {!loading && !snapshots.length && (
+        {loading && <p className="muted pad" role="status">Loading versions…</p>}
+        {historyError && <div className="alert err" role="alert"><span className="alert-text">Could not load version history: {historyError}</span><button className="btn small" disabled={loading} onClick={() => setHistoryAttempt(n => n + 1)}>Retry</button></div>}
+        {!loading && !historyError && !snapshots.length && (
           <Empty icon="history" title={state.provider.connected ? 'No backups yet' : 'Connect a storage to see backups'}>
             {state.provider.connected && 'The first one happens after you play, or press Back up now.'}
           </Empty>
@@ -142,7 +152,7 @@ export function GameDetail({ state, id, navigate }: { state: AppState; id: strin
                       <Icon name="check" size={12} /> On this PC
                     </span>
                   ) : (
-                    <button className="btn small" disabled={running || busy} onClick={() => restore(s.id, `the save from ${when.toLocaleString()}`)}>
+                    <button className="btn small" disabled={running || busy || !!state.operation || !!historyError || !state.provider.connected} onClick={() => restore(s.id)}>
                       Restore
                     </button>
                   )}

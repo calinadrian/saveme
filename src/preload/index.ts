@@ -17,6 +17,7 @@ const channels = [
   'openLicenses',
   'disconnect',
   'refreshQuota',
+  'refreshBackupUsage',
   'openSaveFolder',
   'addCustomGame',
   'updateSettings',

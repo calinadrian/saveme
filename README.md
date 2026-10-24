@@ -7,7 +7,7 @@ Automatic game-save backup for Windows, to Google Drive, OneDrive or any folder.
 - **Finds saves on its own.** It uses the [Ludusavi manifest](https://github.com/mtkennerly/ludusavi-manifest) (save locations for 20k+ games) together with your Steam, Epic and GOG installs.
 - **Backs up when you stop playing.** It watches game processes and uploads a few seconds after the game closes. Games it can't see running are backed up once their save files go quiet.
 - **Only uploads what changed.** Files are hashed, so a session without saving uploads nothing.
-- **Keeps a version history.** By default: the last 10 versions, plus 1 per day for 2 weeks, plus 1 per week for 8 weeks. Restore any version in one click; your current save is always backed up first.
+- **Keeps a small version history.** New installations keep the newest backup and two previous versions per game. Change the limit in Settings → Version history; older backups are removed after a successful backup. Existing daily/weekly policies stay active until you choose to switch. Restoring preserves your current files first.
 - **Works across PCs.** If another PC has a newer save, you get a notification. A fresh PC never overwrites the cloud with an empty new-game save.
 - **Shows your storage.** Free space and how much SaveMe uses.
 - **Lives in the tray.** It starts with Windows and stays out of the way.
@@ -60,6 +60,22 @@ See [docs/SETUP.md](docs/SETUP.md) to connect Google Drive or OneDrive and to ru
 
 `node scripts/scan-test.ts <manifest.yaml>` (via `npx tsx`) prints what a scan finds on this PC.
 
+### Backup and restore safety
+
+Backups, restores, and storage changes share one operation coordinator on each PC. Backups wait while the game is running and hash the same staged bytes that are put into the ZIP. Unreadable or changing files abort the capture rather than producing a partial version.
+
+Restore validates all archive paths, file hashes, and declared size before replacing files. It downloads the selected version before making the pre-restore backup, and protects that version from retention during the operation. A local journal under `%APPDATA%\SaveMe\restore-recovery` preserves previous files until replacement completes. An interrupted restore is rolled back on the next launch before watchers start. If rollback fails, automatic backups stop and the recovery files are retained; resolve the reported problem and restart SaveMe to retry recovery.
+
+Local settings keep a validated previous copy (`state.json.bak`). Unreadable settings are preserved separately; SaveMe reports recovery and refuses to start automatic backups if neither copy can be loaded. History metadata commits before archive cleanup, and failed catalog updates or cleanup jobs are persisted for retry.
+
+These safeguards coordinate operations within one SaveMe process. Simultaneous metadata writes from different PCs still need a separate concurrency protocol; this change does not resolve that limitation.
+
+`npm test` covers injected backup, restore, retention, and recovery failures. After building, `node_modules/.bin/electron scripts/safety-ui-smoke.cjs` exercises status reporting, history error/retry, keyboard dialogs, and the minimum window size using synthetic state and an isolated profile.
+
+`node_modules/.bin/electron scripts/ui-refinement-smoke.cjs` also checks startup retry, keyboard library navigation and view restoration, safe restore confirmations, forms, retention validation, save feedback, and accessibility-tree names. It exercises all screens at 1100×780, 820×580, and 200% app zoom, with emulated high-contrast and reduced-motion preferences. Add `--scale=1.25` or `--scale=1.5` for device-scaling emulation without changing Windows display settings. These automated checks inspect the accessibility tree; an audible Narrator session remains a separate manual check.
+
+Backup storage usage is a separate read-only scan, with up to four folders checked at once. It has a 20-second deadline, reports progress, and can be retried after failure without holding up backups or restores. Changing storage or starting a new backup invalidates an older scan. The renderer also releases its pending control after 25 seconds if an IPC reply is lost.
+
 ### Releasing
 
 1. Commit your changes, then `npm version patch` (or `minor`) to bump the version.
@@ -69,4 +85,6 @@ See [docs/SETUP.md](docs/SETUP.md) to connect Google Drive or OneDrive and to ru
    Needs the GitHub CLI signed in (`gh auth login`). A failed upload leaves a draft that the same command can retry.
    Sign-in client IDs come from `.env` at build time; the script warns if they're missing.
 
-`npm run package` builds the same installer into `dist/` without publishing.
+`npm run package` builds the main app and installer into `dist/main/` without publishing. Run the app from `dist/main/win-unpacked/SaveMe.exe`.
+
+`npm run package:test` builds a testing copy into `dist/testing/`. These are the only two build directories: reuse them for subsequent builds instead of creating dated or per-fix folders. Quit the app before rebuilding its copy if Windows locks the executable. The release script also reads its installer and update manifest from `dist/main/`.

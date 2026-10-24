@@ -2,7 +2,8 @@ import type { ReactNode } from 'react'
 import type { ActivityItem, AppState, Game } from '../../../shared/types'
 import type { Navigate } from '../App'
 import { api, formatBytes, plural, timeAgo } from '../api'
-import { Cover, Icon, IconName, PROVIDER_NAMES, PROVIDER_PLACE, ProviderIcon, Spinner, StatusPill, useAction } from '../components'
+import { Cover, Icon, IconName, InlineError, PROVIDER_NAMES, PROVIDER_PLACE, ProviderIcon, Spinner, StatusPill, useAction } from '../components'
+import { protection } from '../../../shared/protection'
 
 export function Dashboard({ state, navigate }: { state: AppState; navigate: Navigate }) {
   const [run, error, busy] = useAction()
@@ -16,7 +17,7 @@ export function Dashboard({ state, navigate }: { state: AppState; navigate: Navi
   return (
     <div className="page">
       <Hero state={state} attention={attention} onConnect={() => navigate('/settings')} onBackup={() => run(() => api.backupAll())} busy={busy} onScan={() => run(() => api.scan())} />
-      {error && <div className="alert err">{error}</div>}
+      <InlineError error={error} />
 
       {attention.length > 0 && (
         <section className="card">
@@ -142,11 +143,21 @@ function Hero({
     icon = <Icon name="cloudOff" size={30} />
     title = 'Backups are paused'
     sub = 'Connect Google Drive, OneDrive or a folder, and SaveMe starts protecting your saves right away.'
-  } else if (state.queue.length) {
+  } else if (state.operation?.kind === 'restore' || state.operation?.kind === 'storage') {
     tone = 'busy'
     icon = <Spinner size={30} />
-    title = `Backing up ${byId(state.queue[0])}${state.queue.length > 1 ? ` and ${plural(state.queue.length - 1, 'more game')}` : ''}`
-    sub = `Uploading to ${where}. You can keep playing.`
+    title = protection(state).label
+    sub = state.operation.kind === 'restore' ? 'Checking and restoring your selected version. Your previous files are kept for recovery until this finishes.' : 'Waiting for current work to finish before using the new destination.'
+  } else if (state.operation?.kind === 'backup') {
+    tone = 'busy'
+    icon = <Spinner size={30} />
+    title = protection(state).label
+    sub = `Preparing and uploading to ${where}.`
+  } else if (state.queue.length && !attention.length) {
+    tone = 'warn'
+    icon = <Icon name="history" size={30} />
+    title = protection(state).label
+    sub = state.games.find(g => g.id === state.queue[0])?.error ?? 'Waiting for the game to close or storage to become available. SaveMe will retry automatically.'
   } else if (state.scanning) {
     tone = 'busy'
     icon = <Spinner size={30} />
@@ -168,8 +179,10 @@ function Hero({
     title = 'No games to back up yet'
     sub = 'Scan again after installing a game, or add one SaveMe didn’t find from the Games page.'
   } else {
-    title = tracked.length === 1 ? 'Your game is backed up' : `All ${tracked.length} games are backed up`
-    sub = `Last backup ${timeAgo(lastBackup)} to ${where}. SaveMe is watching for your next session.`
+    const health = protection(state)
+    title = health.label
+    if (health.kind !== 'protected') { tone = 'warn'; icon = <Icon name="alert" size={30} /> }
+    sub = health.kind === 'protected' ? `Last backup ${timeAgo(lastBackup)} to ${where}. SaveMe is watching for your next session.` : 'Open Games to check save locations, or back up now to create a confirmed version.'
   }
 
   return (
@@ -189,7 +202,7 @@ function Hero({
             <Icon name="refresh" size={16} /> Scan again
           </button>
         ) : (
-          <button className="btn primary" disabled={busy || state.queue.length > 0} onClick={onBackup}>
+            <button className="btn primary" disabled={busy || !!state.operation} onClick={onBackup}>
             <Icon name="upload" size={16} /> Back up now
           </button>
         )}
@@ -202,7 +215,9 @@ function StorageCard({ state }: { state: AppState }) {
   const q = state.quota
   const total = q?.totalBytes
   const used = q?.usedBytes ?? 0
-  const mine = Math.min(state.saveMeBytes, used || state.saveMeBytes)
+  const backupBytes = state.backupUsage?.status === 'ready' ? state.backupUsage.bytes : undefined
+  const usageLabel = state.backupUsage?.status === 'unavailable' ? 'Usage unavailable' : 'Checking usage…'
+  const mine = backupBytes === undefined ? 0 : Math.min(backupBytes, used || backupBytes)
   const pct = (n: number): string => (total ? `${Math.max(n > 0 ? 0.8 : 0, (n / total) * 100)}%` : '0%')
   return (
     <div className="card tile storage">
@@ -218,7 +233,7 @@ function StorageCard({ state }: { state: AppState }) {
         </div>
       </div>
       <div className="tile-value">
-        {total ? formatBytes(total - used) : formatBytes(state.saveMeBytes)}
+        {total ? formatBytes(total - used) : backupBytes === undefined ? '—' : formatBytes(backupBytes)}
         <small>{total ? `free of ${formatBytes(total)}` : 'used by SaveMe'}</small>
       </div>
       {total ? (
@@ -229,15 +244,15 @@ function StorageCard({ state }: { state: AppState }) {
           </div>
           <div className="legend">
             <span>
-              <i className="mine" /> SaveMe {formatBytes(state.saveMeBytes)}
+              <i className="mine" /> SaveMe {backupBytes === undefined ? usageLabel : formatBytes(backupBytes)}
             </span>
             <span>
-              <i className="other" /> Other files {formatBytes(Math.max(0, used - mine))}
+              <i className="other" /> {backupBytes === undefined ? `Total used ${formatBytes(used)}` : `Other files ${formatBytes(Math.max(0, used - mine))}`}
             </span>
           </div>
         </>
       ) : (
-        <p className="muted small">{state.provider.connected ? "Free space shows once SaveMe can read this storage's size." : 'Connect a storage to see free space.'}</p>
+        <p className="muted small">{state.provider.connected ? backupBytes === undefined ? usageLabel : "Free space shows once SaveMe can read this storage's size." : 'Connect a storage to see free space.'}</p>
       )}
     </div>
   )
@@ -245,7 +260,7 @@ function StorageCard({ state }: { state: AppState }) {
 
 function CoverageCard({ state, onOpen }: { state: AppState; onOpen: () => void }) {
   const tracked = state.games.filter((g) => g.tracked)
-  const safe = tracked.filter((g) => g.status === 'synced').length
+  const safe = tracked.filter((g) => g.status === 'synced' && g.lastSnapshotId).length
   const off = state.games.length - tracked.length
   const share = tracked.length ? safe / tracked.length : 0
   return (

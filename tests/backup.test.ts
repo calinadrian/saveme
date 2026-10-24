@@ -34,6 +34,11 @@ describe('retention', () => {
   it('always keeps at least one', () => {
     expect(snapshotsToPrune([snap(400 * DAY, 1)], { keepLast: 0, keepDaily: 0, keepWeekly: 0 }, now)).toEqual([])
   })
+
+  it('keeps the last three committed versions when timestamps are identical', () => {
+    const versions = [1, 2, 3, 4].map(i => snap(1000, i))
+    expect(snapshotsToPrune(versions, { keepLast: 3, keepDaily: 0, keepWeekly: 0 }, now).map(s => s.id)).toEqual(['s1'])
+  })
 })
 
 /** A simulated PC: its own user folders and state, sharing one "cloud" folder with the others. */

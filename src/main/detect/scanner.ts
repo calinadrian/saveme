@@ -75,13 +75,13 @@ function tooBroad(dir: string, folders: KnownFolders): boolean {
 const IGNORED_FILE = /(^|\/)(desktop\.ini|thumbs\.db)$|\.(log|dmp|tmp)$|\/(logs?|crashes|crashreports?|webcache[^/]*|shadercache|cache)\//i
 
 /** Expand a resolved pattern to concrete files (directories are walked recursively). */
-export function expandFiles(pattern: string, folders: KnownFolders): string[] {
+export function expandFiles(pattern: string, folders: KnownFolders, strict = false): string[] {
   const prefix = unescape(literalPrefix(pattern))
   if (!prefix || !fs.existsSync(prefix)) return []
   const hasGlob = /[*?[{]/.test(pattern)
   let matches: string[]
   if (hasGlob) {
-    matches = fg.sync(pattern, { onlyFiles: false, caseSensitiveMatch: false, dot: true, absolute: true, suppressErrors: true, markDirectories: true })
+    matches = fg.sync(pattern, { onlyFiles: false, caseSensitiveMatch: false, dot: true, absolute: true, suppressErrors: !strict, markDirectories: true })
   } else {
     matches = [prefix + (fs.statSync(prefix).isDirectory() ? '/' : '')]
   }
@@ -90,7 +90,7 @@ export function expandFiles(pattern: string, folders: KnownFolders): string[] {
     if (m.endsWith('/')) {
       if (tooBroad(m, folders)) continue
       const base = fg.convertPathToPattern(m.slice(0, -1))
-      files.push(...fg.sync(base + '/**/*', { dot: true, absolute: true, suppressErrors: true }))
+      files.push(...fg.sync(base + '/**/*', { dot: true, absolute: true, suppressErrors: !strict }))
     } else {
       files.push(m)
     }

@@ -1,12 +1,14 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { app, BrowserWindow, Menu, nativeImage, Notification, Tray, shell } from 'electron'
+import { app, BrowserWindow, dialog, Menu, nativeImage, Notification, Tray, shell } from 'electron'
 import electronUpdater from 'electron-updater'
 import { SaveMeApp } from './app'
 import { registerIpc } from './ipc'
 import { createUpdates, Updater } from './updates'
 import { APP_ID, DEV_APP_ID, repairSaveMeShortcuts, shellIconPath } from './identity'
+import { installMinimizeBehavior, restoreWindow } from './window'
+import { protection } from '../shared/protection'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -68,14 +70,16 @@ if (!primary) {
   app.quit()
 } else {
   app.on('second-instance', () => showWindow())
-  app.whenReady().then(start)
+  app.whenReady().then(start).catch(error => {
+    dialog.showErrorBox('SaveMe could not start safely', `${(error as Error).message}\n\nAutomatic backups have not started. Preserve the recovery files and resolve this problem before trying again.`)
+    app.quit()
+  })
 }
 
 function showWindow(route?: string): void {
   if (!win || win.isDestroyed()) createWindow()
   if (route) win!.webContents.send('navigate', route)
-  win!.show()
-  win!.focus()
+  restoreWindow(win!)
 }
 
 function createWindow(): void {
@@ -101,6 +105,7 @@ function createWindow(): void {
     relaunchDisplayName: 'SaveMe',
     relaunchCommand: app.isPackaged ? `"${process.execPath}"` : `"${process.execPath}" "${app.getAppPath()}"`
   })
+  installMinimizeBehavior(win, () => !quitting && saveme.db.data.settings.minimizeToTray)
   win.on('close', (e) => {
     // Closing the window keeps SaveMe running in the tray.
     if (!quitting) {
@@ -128,16 +133,7 @@ function createTray(): void {
     const s = saveme.state()
     const u = updates.get()
     const pending = s.games.filter((g) => g.status === 'cloud-newer').length
-    const failed = s.games.filter((g) => g.status === 'error').length
-    const busy = s.queue.length
-      ? `Backing up ${s.queue.length} game${s.queue.length > 1 ? 's' : ''}…`
-      : !s.provider.connected
-        ? 'Not connected'
-        : failed
-          ? `${failed} backup${failed > 1 ? 's' : ''} failed`
-          : pending
-            ? 'Newer saves waiting in the cloud'
-            : 'All saves backed up'
+    const busy = protection(s).label
     tray!.setToolTip(`SaveMe: ${busy}`)
     tray!.setContextMenu(
       Menu.buildFromTemplate([
@@ -161,7 +157,7 @@ function createTray(): void {
 /** A downloaded update installs by itself once SaveMe is only in the tray and has nothing to do. */
 function idle(): boolean {
   const s = saveme.state()
-  return !win?.isVisible() && !s.queue.length && !s.running.length && !s.scanning
+  return !win?.isVisible() && !s.queue.length && !s.running.length && !s.scanning && !s.operation
 }
 
 function watchUpdates(): void {
@@ -202,8 +198,15 @@ async function start(): Promise<void> {
   if (!saveme.db.data.lastScanAt) void saveme.scan()
 }
 
-app.on('before-quit', () => {
+let drained = false
+app.on('before-quit', (event) => {
   quitting = true
+  if (saveme?.engine && !drained) {
+    event.preventDefault()
+    saveme.engine.stop()
+    void saveme.engine.drain().then(() => { drained = true; app.quit() })
+    return
+  }
   saveme?.shutdown()
 })
 

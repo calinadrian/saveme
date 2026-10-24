@@ -59,8 +59,10 @@ export class OneDriveProvider implements StorageProvider {
   }
 
   private async fetch(url: string, init: RequestInit = {}, what = 'OneDrive', allow404 = false): Promise<Response> {
+    init.signal?.throwIfAborted()
     const headers = new Headers(init.headers)
     headers.set('Authorization', `Bearer ${await this.session.token()}`)
+    init.signal?.throwIfAborted()
     const res = await fetch(url, { ...init, headers })
     if (allow404 && res.status === 404) return res
     return checkOk(res, what)
@@ -95,11 +97,11 @@ export class OneDriveProvider implements StorageProvider {
     return Buffer.from(await res.arrayBuffer())
   }
 
-  async list(dir: string): Promise<RemoteEntry[]> {
+  async list(dir: string, signal?: AbortSignal): Promise<RemoteEntry[]> {
     let url: string | undefined = this.enc(dir) ? `${APPROOT}:/${this.enc(dir)}:/children?$select=name,size&$top=999` : `${APPROOT}/children?$select=name,size&$top=999`
     const out: RemoteEntry[] = []
     while (url) {
-      const res = await this.fetch(url, {}, 'List', true)
+      const res = await this.fetch(url, { signal }, 'List', true)
       if (res.status === 404) return out
       const body = (await res.json()) as { value: { name: string; size: number }[]; '@odata.nextLink'?: string }
       out.push(...body.value.map((v) => ({ name: v.name, size: v.size })))

@@ -18,6 +18,14 @@ export interface ManifestGame {
   gogId?: number
 }
 
+/** Corrections for observed save locations missing from the upstream database. */
+export function applyManifestCorrections(manifest: ManifestGame[]): ManifestGame[] {
+  const savePath = '<winLocalAppData>/KojimaProductions/DeathStranding2/<storeUserId>'
+  return manifest.map((game) => game.steamId === 3280350 && !game.files.some((file) => file.path === savePath)
+    ? { ...game, files: [...game.files, { path: savePath }] }
+    : game)
+}
+
 interface RawEntry {
   files?: Record<string, { when?: When[]; tags?: string[] } | null>
   installDir?: Record<string, unknown>
@@ -81,5 +89,5 @@ export async function loadManifest(dir: string, maxAgeMs = 7 * 24 * 3600 * 1000)
       if (!cached) throw e
     }
   }
-  return JSON.parse(fs.readFileSync(jsonFile, 'utf8'))
+  return applyManifestCorrections(JSON.parse(fs.readFileSync(jsonFile, 'utf8')))
 }

@@ -1,5 +1,5 @@
 param(
-  [string]$Executable = "$PSScriptRoot\..\dist\win-unpacked\SaveMe.exe",
+  [string]$Executable = "$PSScriptRoot\..\dist\main\win-unpacked\SaveMe.exe",
   [string]$Output = "$PSScriptRoot\..\.tmp\windows-icon.png"
 )
 $ErrorActionPreference = 'Stop'

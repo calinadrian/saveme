@@ -19,7 +19,7 @@ export interface StorageProvider {
   account(): string | undefined
   put(path: string, data: Buffer): Promise<void>
   get(path: string): Promise<Buffer | undefined>
-  list(dir: string): Promise<RemoteEntry[]>
+  list(dir: string, signal?: AbortSignal): Promise<RemoteEntry[]>
   remove(path: string): Promise<void>
   quota(): Promise<Quota>
 }
@@ -49,8 +49,9 @@ export class HttpError extends Error {
 
 /** Errors worth retrying later: offline, timeouts, rate limits, server errors. */
 export function isTransient(e: unknown): boolean {
+  if (e instanceof Error && e.name === 'TimeoutError') return true
   if (e instanceof HttpError) return e.status === 429 || e.status >= 500
-  return e instanceof TypeError || (e as { code?: string })?.code === 'ECONNRESET'
+  return e instanceof TypeError || ['ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN', 'ENETUNREACH', 'SAVEME_BUSY', 'EBUSY', 'EACCES', 'EPERM', 'ENOENT'].includes((e as { code?: string })?.code ?? '')
 }
 
 export async function checkOk(res: Response, what: string): Promise<Response> {

@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import yaml from 'js-yaml'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const DIST = path.join(ROOT, 'dist', 'main')
 const REPO = 'calinadrian/saveme'
 const require = createRequire(import.meta.url)
 
@@ -70,7 +71,7 @@ function main() {
     .split(/\r?\n/)
     .find((t) => t && t !== tag)
   const subjects = git('log', '--no-merges', '--pretty=%s', previous ? previous + '..HEAD' : 'HEAD').split(/\r?\n/)
-  const notesFile = path.join(ROOT, 'dist', 'release-notes.md')
+  const notesFile = path.join(DIST, 'release-notes.md')
   fs.mkdirSync(path.dirname(notesFile), { recursive: true })
   fs.writeFileSync(notesFile, releaseNotes(subjects) + '\n')
 
@@ -82,8 +83,8 @@ function main() {
     node(electronVite, ['build']) &&
     node(require.resolve('electron-builder/cli.js'), ['--win', '--publish', 'never', '-c.releaseInfo.releaseNotesFile=' + notesFile])
   if (!built) throw Error('Installer build failed; nothing was published.')
-  const installer = path.join(ROOT, 'dist', `SaveMe-Setup-${version}.exe`)
-  const manifest = path.join(ROOT, 'dist', 'latest.yml')
+  const installer = path.join(DIST, `SaveMe-Setup-${version}.exe`)
+  const manifest = path.join(DIST, 'latest.yml')
   const assets = [installer, installer + '.blockmap', manifest]
   for (const file of assets) if (!fs.statSync(file).size) throw Error('Missing or empty asset: ' + file)
   const info = yaml.load(fs.readFileSync(manifest, 'utf8'))

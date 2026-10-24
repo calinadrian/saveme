@@ -1,24 +1,40 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { AppState, UpdateState } from '../../shared/types'
 import { api, plural, useAppState, useUpdate } from './api'
 import { BrandMark, DialogHost, Icon, IconName, Modal, Spinner } from './components'
 import { Dashboard } from './pages/Dashboard'
-import { Games } from './pages/Games'
+import { Games, LibraryView } from './pages/Games'
 import { GameDetail } from './pages/GameDetail'
 import { Settings } from './pages/Settings'
 import { Onboarding } from './pages/Onboarding'
+import { protection } from '../../shared/protection'
 
 export type Navigate = (route: string) => void
 
 export function App() {
-  const state = useAppState()
+  const [load, retry] = useAppState()
+  const state = load.status === 'ready' ? load.value : undefined
   const update = useUpdate()
   const [route, setRoute] = useState('/')
   const [skipOnboarding, setSkipOnboarding] = useState(false)
   const [updateOpen, setUpdateOpen] = useState(false)
   const [offered, setOffered] = useState<string>()
+  const content = useRef<HTMLElement>(null)
+  const library = useRef<LibraryView>({ query: '', filter: 'all', scrollTop: 0 })
+  const currentRoute = useRef(route)
+  currentRoute.current = route
+  const navigate = useCallback((to: string): void => {
+    if (currentRoute.current === '/games') library.current.scrollTop = content.current?.scrollTop ?? 0
+    setRoute(to)
+  }, [])
 
-  useEffect(() => api.onNavigate(setRoute), [])
+  useEffect(() => api.onNavigate(navigate), [navigate])
+  useLayoutEffect(() => {
+    if (route === '/games' || !content.current) return
+    content.current.scrollTop = 0
+    const heading = content.current.querySelector<HTMLElement>('h1')
+    if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }) }
+  }, [route, load.status, skipOnboarding])
   // A downloaded update opens its dialog once per version; after that it waits in the sidebar.
   useEffect(() => {
     if (update.status === 'ready' && update.version && offered !== update.version) {
@@ -32,8 +48,8 @@ export function App() {
     return (
       <div className="boot">
         <TitleBar />
-        <div className="loading">
-          <Spinner size={22} />
+        <div className="loading" role={load.status === 'error' ? 'alert' : 'status'}>
+          {load.status === 'error' ? <div className="boot-error"><h1>Could not open SaveMe</h1><p>{load.error}</p><button className="btn primary" onClick={retry}>Retry</button></div> : <><Spinner size={22} /><span>Opening SaveMe…</span></>}
         </div>
       </div>
     )
@@ -57,13 +73,13 @@ export function App() {
   }
 
   const page = route.startsWith('/game/') ? (
-    <GameDetail key={route} state={state} id={route.slice(6)} navigate={setRoute} />
+    <GameDetail key={route} state={state} id={route.slice(6)} navigate={navigate} />
   ) : route === '/games' ? (
-    <Games state={state} navigate={setRoute} />
+    <Games state={state} navigate={navigate} view={library} />
   ) : route === '/settings' ? (
     <Settings state={state} update={update} onOpenUpdate={() => setUpdateOpen(true)} />
   ) : (
-    <Dashboard state={state} navigate={setRoute} />
+    <Dashboard state={state} navigate={navigate} />
   )
 
   const attention = state.games.filter((g) => g.status === 'cloud-newer' || g.status === 'error').length
@@ -80,9 +96,9 @@ export function App() {
       <aside className="sidebar">
         <nav aria-label="Main">
           {nav.map((n) => (
-            <button key={n.to} className={'nav-item' + (active(n.to) ? ' active' : '')} aria-current={active(n.to) ? 'page' : undefined} onClick={() => setRoute(n.to)}>
+            <button key={n.to} className={'nav-item' + (active(n.to) ? ' active' : '')} aria-label={n.label} title={n.label} aria-current={active(n.to) ? 'page' : undefined} onClick={() => navigate(n.to)}>
               <Icon name={n.icon} />
-              {n.label}
+              <span className="nav-label">{n.label}</span>
               {n.badge && (
                 <span className="badge" title={`${plural(n.badge, 'game')} need a look`}>
                   {n.badge}
@@ -92,11 +108,14 @@ export function App() {
           ))}
         </nav>
         <div className="sidebar-foot">
-          <SyncIndicator state={state} onClick={() => setRoute(!state.provider.connected ? '/settings' : attention ? '/games' : '/')} />
+          <SyncIndicator state={state} onClick={() => navigate(!state.provider.connected ? '/settings' : attention ? '/games' : '/')} />
           <VersionChip update={update} onOpen={() => setUpdateOpen(true)} onCheck={() => void api.checkForUpdate()} />
         </div>
       </aside>
-      <main className="content">{page}</main>
+      <main ref={content} className="content" aria-label="SaveMe workspace">
+        {state.recoveryWarning && <div className="alert warn" role="alert">{state.recoveryWarning}</div>}
+        {page}
+      </main>
       {dialogs}
     </div>
   )
@@ -115,22 +134,13 @@ function TitleBar() {
 }
 
 function SyncIndicator({ state, onClick }: { state: AppState; onClick: () => void }) {
-  const queue = state.queue.length
-  // Same rule as the overview: a failed backup or a newer save elsewhere isn't "all backed up".
-  const attention = state.games.filter((g) => g.status === 'cloud-newer' || g.status === 'error').length
-  const [cls, label] = !state.provider.connected
-    ? ['off', 'Backups paused']
-    : state.scanning
-      ? ['busy', 'Scanning games…']
-      : queue
-        ? ['busy', `Backing up ${plural(queue, 'game')}…`]
-        : attention
-          ? ['off', `${plural(attention, 'game')} ${attention === 1 ? 'needs' : 'need'} a look`]
-          : ['ok', 'All saves backed up']
+  const { kind, label } = protection(state)
+  const cls = kind === 'protected' ? 'ok' : ['uploading', 'restoring', 'storage', 'scanning'].includes(kind) ? 'busy' : 'off'
+  const short = kind === 'unprotected' ? 'Backup needed' : kind === 'waiting' ? 'Waiting to retry' : kind === 'protected' ? 'Backed up' : kind === 'paused' ? 'Backups paused' : kind === 'attention' ? 'Needs a look' : kind === 'uploading' ? 'Backing up…' : kind === 'restoring' ? 'Restoring…' : kind === 'storage' ? 'Changing storage…' : kind === 'scanning' ? 'Scanning…' : kind === 'empty' ? 'No games yet' : 'Playing'
   return (
-    <button className={`sync ${cls}`} onClick={onClick}>
+    <button className={`sync ${cls}`} title={label} aria-label={label} onClick={onClick}>
       {cls === 'busy' ? <Spinner size={12} /> : <i className="sync-dot" />}
-      <span>{label}</span>
+      <span>{short}</span>
     </button>
   )
 }

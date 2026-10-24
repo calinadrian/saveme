@@ -61,15 +61,17 @@ export class GoogleDriveProvider implements StorageProvider {
   }
 
   private async fetch(url: string, init: RequestInit = {}, what = 'Google Drive'): Promise<Response> {
+    init.signal?.throwIfAborted()
     const headers = new Headers(init.headers)
     headers.set('Authorization', `Bearer ${await this.session.token()}`)
+    init.signal?.throwIfAborted()
     return checkOk(await fetch(url, { ...init, headers }), what)
   }
 
-  private async findChild(parentId: string, name: string, folder?: boolean): Promise<string | undefined> {
+  private async findChild(parentId: string, name: string, folder?: boolean, signal?: AbortSignal): Promise<string | undefined> {
     const query = [`name='${q(name)}'`, `'${parentId}' in parents`, 'trashed=false']
     if (folder) query.push(`mimeType='${FOLDER}'`)
-    const res = await this.fetch(`${API}/files?` + new URLSearchParams({ q: query.join(' and '), fields: 'files(id)', pageSize: '1', spaces: 'drive' }))
+    const res = await this.fetch(`${API}/files?` + new URLSearchParams({ q: query.join(' and '), fields: 'files(id)', pageSize: '1', spaces: 'drive' }), { signal })
     const body = (await res.json()) as { files: { id: string }[] }
     return body.files[0]?.id
   }
@@ -84,19 +86,21 @@ export class GoogleDriveProvider implements StorageProvider {
   }
 
   /** Folder id for a dir relative to the backup folder ('' = the backup folder itself), creating folders when asked. */
-  private async folderId(dir: string, create: boolean): Promise<string | undefined> {
+  private async folderId(dir: string, create: boolean, signal?: AbortSignal): Promise<string | undefined> {
     const parts = [...this.base.split('/'), ...dir.split('/')].filter(Boolean)
     let key = ''
     let id = 'root'
     for (const part of parts) {
+      signal?.throwIfAborted()
       key = key ? `${key}/${part}` : part
       const cached = this.ids.get(key)
       if (cached) {
         id = cached
         continue
       }
-      const found: string | undefined = (await this.findChild(id, part, true)) ?? (create ? await this.createFolder(id, part) : undefined)
+      const found: string | undefined = (await this.findChild(id, part, true, signal)) ?? (create ? await this.createFolder(id, part) : undefined)
       if (!found) return undefined
+      signal?.throwIfAborted()
       this.ids.set(key, found)
       id = found
     }
@@ -140,15 +144,15 @@ export class GoogleDriveProvider implements StorageProvider {
     return Buffer.from(await res.arrayBuffer())
   }
 
-  async list(dir: string): Promise<RemoteEntry[]> {
-    const parent = await this.folderId(dir, false)
+  async list(dir: string, signal?: AbortSignal): Promise<RemoteEntry[]> {
+    const parent = await this.folderId(dir, false, signal)
     if (!parent) return []
     const out: RemoteEntry[] = []
     let pageToken: string | undefined
     do {
       const params = new URLSearchParams({ q: `'${parent}' in parents and trashed=false`, fields: 'nextPageToken,files(name,size)', pageSize: '1000' })
       if (pageToken) params.set('pageToken', pageToken)
-      const body = (await (await this.fetch(`${API}/files?${params}`)).json()) as { nextPageToken?: string; files: { name: string; size?: string }[] }
+      const body = (await (await this.fetch(`${API}/files?${params}`, { signal })).json()) as { nextPageToken?: string; files: { name: string; size?: string }[] }
       out.push(...body.files.map((f) => ({ name: f.name, size: Number(f.size ?? 0) })))
       pageToken = body.nextPageToken
     } while (pageToken)

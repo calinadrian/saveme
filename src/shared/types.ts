@@ -74,6 +74,7 @@ export interface Settings {
   /** Folder inside the storage that holds the backups, per provider (see DEFAULT_REMOTE_FOLDER). */
   remoteFolder?: Partial<Record<ProviderKind, string>>
   startAtLogin: boolean
+  minimizeToTray: boolean
   notifications: boolean
   /** Check GitHub for new versions on launch and every 6 hours, and install them while idle in the tray. */
   autoUpdate: boolean
@@ -95,6 +96,9 @@ export interface ActivityItem {
 }
 
 export interface AppState {
+  backupUsage?: { status: 'loading'; completed?: number; total?: number } | { status: 'unavailable' } | { status: 'ready'; bytes: number }
+  recoveryWarning?: string
+  operation?: { kind: 'backup' | 'restore' | 'storage' | 'checking'; gameId?: string }
   machine: string
   settings: Settings
   games: Game[]
@@ -130,7 +134,9 @@ export interface UpdateState {
   message?: string
 }
 
-export const DEFAULT_RETENTION: RetentionPolicy = { keepLast: 10, keepDaily: 14, keepWeekly: 8 }
+export const DEFAULT_RETENTION: RetentionPolicy = { keepLast: 3, keepDaily: 0, keepWeekly: 0 }
+/** Defaults used by existing state files that predate the simple backup limit. */
+export const LEGACY_RETENTION: RetentionPolicy = { keepLast: 10, keepDaily: 14, keepWeekly: 8 }
 
 /** OneDrive's app folder is already Apps/SaveMe, so no extra folder there by default. */
 export const DEFAULT_REMOTE_FOLDER: Record<ProviderKind, string> = { gdrive: 'SaveMe', onedrive: '', local: 'SaveMe' }

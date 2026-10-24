@@ -6,11 +6,12 @@ import electronUpdater from 'electron-updater'
 import { SaveMeApp } from './app'
 import { registerIpc } from './ipc'
 import { createUpdates, Updater } from './updates'
-import { APP_ID, DEV_APP_ID, repairSaveMeShortcuts } from './identity'
+import { APP_ID, DEV_APP_ID, repairSaveMeShortcuts, shellIconPath } from './identity'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const resources = app.isPackaged ? path.join(process.resourcesPath, 'app.asar.unpacked', 'resources') : path.join(app.getAppPath(), 'resources')
+let appIcon = path.join(resources, 'icon.ico')
 const HOUR = 60 * 60_000
 
 let win: BrowserWindow | undefined
@@ -86,7 +87,7 @@ function createWindow(): void {
     show: false,
     title: 'SaveMe',
     backgroundColor: '#0c0e11',
-    icon: path.join(resources, 'icon.ico'),
+    icon: appIcon,
     // Our own title bar (see TitleBar in App.tsx) with the native Windows buttons on top.
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: '#0c0e11', symbolColor: '#a3a9b5', height: 40 },
@@ -96,7 +97,7 @@ function createWindow(): void {
   // Explicit shell identity also supplies the icon when running through electron.exe in development.
   win.setAppDetails({
     appId,
-    appIconPath: path.join(resources, 'icon.ico'),
+    appIconPath: appIcon,
     relaunchDisplayName: 'SaveMe',
     relaunchCommand: app.isPackaged ? `"${process.execPath}"` : `"${process.execPath}" "${app.getAppPath()}"`
   })
@@ -172,12 +173,13 @@ function watchUpdates(): void {
 }
 
 async function start(): Promise<void> {
+  if (process.platform === 'win32') appIcon = shellIconPath(appIcon, path.join(app.getPath('userData'), 'shell-icons'))
   if (process.platform === 'win32' && app.isPackaged) {
     try {
       repairSaveMeShortcuts(
         path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs'),
         path.join(app.getPath('userData'), 'shortcut-backups'),
-        process.execPath, path.join(resources, 'icon.ico'), shell
+        process.execPath, appIcon, shell
       )
     } catch (error) { console.warn('[saveme] Windows identity:', (error as Error).message) }
   }

@@ -16,6 +16,8 @@ Slim persistent main navigation, a flat content canvas, compact page headers, an
 
 Check library, overview, detail, settings categories and minimum window size. Verify the actual Windows taskbar context menu, not only the executable's icon resource.
 
+Windows shell icon paths include a content hash. Update both the window relaunch properties and the Start menu shortcut when artwork changes, so Explorer cannot reuse a cached previous color.
+
 ## Filled controls
 
 Primary buttons and other solid interactive fills use #0b74bd with white text/icons; hover uses #0966a8. White-text contrast is 4.94:1 normally and 6.04:1 on hover. Keep the supplied Steam blue #1a9fff on the app icon, links, active navigation and focus indicators.

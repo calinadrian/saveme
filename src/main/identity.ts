@@ -1,9 +1,25 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import crypto from 'node:crypto'
 import type { ShortcutDetails } from 'electron'
 
 export const APP_ID = 'app.saveme.desktop'
 export const DEV_APP_ID = 'app.saveme.desktop.dev'
+
+/** Explorer caches icons by filename, even when the bytes at that path change. */
+export function shellIconPath(source: string, cache: string): string {
+  try {
+    const bytes = fs.readFileSync(source)
+    const hash = crypto.createHash('sha256').update(bytes).digest('hex').slice(0, 16)
+    const icon = path.join(cache, `saveme-${hash}.ico`)
+    fs.mkdirSync(cache, { recursive: true })
+    if (!fs.existsSync(icon)) fs.writeFileSync(icon, bytes)
+    return icon
+  } catch (error) {
+    console.warn('[saveme] Shell icon cache:', (error as Error).message)
+    return source
+  }
+}
 
 interface Shortcuts {
   readShortcutLink(file: string): ShortcutDetails

@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
-import { APP_ID, DEV_APP_ID, repairSaveMeShortcuts } from '../src/main/identity'
+import { APP_ID, DEV_APP_ID, repairSaveMeShortcuts, shellIconPath } from '../src/main/identity'
 
 const dirs: string[] = []
 afterEach(() => dirs.splice(0).forEach(dir => fs.rmSync(dir, { recursive: true, force: true })))
@@ -49,4 +49,18 @@ it('refreshes a SaveMe-owned shortcut that still points at an old executable or 
   }
   repairSaveMeShortcuts(programs, backup, 'D:\\SaveMe\\SaveMe.exe', 'D:\\SaveMe\\icon.ico', shell)
   expect(shell.writeShortcutLink).toHaveBeenCalledWith(path.join(programs, 'SaveMe.lnk'), 'update', expect.objectContaining({ target: 'D:\\SaveMe\\SaveMe.exe' }))
+})
+
+it('gives changed icon content a fresh immutable shell path while preserving the old icon', () => {
+  const { programs, backup } = setup()
+  const source = path.join(programs, 'icon.ico')
+  fs.writeFileSync(source, 'green icon')
+  const green = shellIconPath(source, backup)
+  expect(fs.readFileSync(green, 'utf8')).toBe('green icon')
+  expect(shellIconPath(source, backup)).toBe(green)
+  fs.writeFileSync(source, 'blue icon')
+  const blue = shellIconPath(source, backup)
+  expect(blue).not.toBe(green)
+  expect(fs.readFileSync(blue, 'utf8')).toBe('blue icon')
+  expect(fs.readFileSync(green, 'utf8')).toBe('green icon')
 })

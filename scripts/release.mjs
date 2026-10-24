@@ -75,9 +75,11 @@ function main() {
   fs.writeFileSync(notesFile, releaseNotes(subjects) + '\n')
 
   // No publication happens until a complete installer and manifest exist.
+  // electron-vite only exports its package.json, so find its CLI from there.
+  const electronVite = path.join(path.dirname(require.resolve('electron-vite/package.json')), 'bin', 'electron-vite.js')
   const built =
     node(path.join(ROOT, 'scripts', 'licenses.mjs'), []) &&
-    node(require.resolve('electron-vite/bin/electron-vite.js'), ['build']) &&
+    node(electronVite, ['build']) &&
     node(require.resolve('electron-builder/cli.js'), ['--win', '--publish', 'never', '-c.releaseInfo.releaseNotesFile=' + notesFile])
   if (!built) throw Error('Installer build failed; nothing was published.')
   const installer = path.join(ROOT, 'dist', `SaveMe-Setup-${version}.exe`)

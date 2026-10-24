@@ -10,8 +10,13 @@ export interface SaveMeApi {
   history(id: string): Promise<GameIndex | undefined>
   restore(id: string, snapshotId: string): Promise<void>
   keepLocal(id: string): Promise<void>
-  connect(kind: ProviderKind, folder?: string): Promise<void>
-  configureAndConnect(kind: 'gdrive' | 'onedrive', ids: { googleClientId?: string; googleClientSecret?: string; microsoftClientId?: string }): Promise<void>
+  connect(kind: ProviderKind, folder?: string, remoteFolder?: string): Promise<void>
+  configureAndConnect(
+    kind: 'gdrive' | 'onedrive',
+    ids: { googleClientId?: string; googleClientSecret?: string; microsoftClientId?: string },
+    remoteFolder?: string
+  ): Promise<void>
+  setRemoteFolder(folder: string): Promise<void>
   openUrl(url: string): Promise<void>
   disconnect(): Promise<void>
   refreshQuota(): Promise<void>

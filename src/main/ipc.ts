@@ -23,8 +23,9 @@ export function registerIpc(saveme: SaveMeApp, win: () => BrowserWindow | undefi
   handle('history', (id: string) => saveme.engine.index(id))
   handle('restore', (id: string, snapshotId: string) => saveme.engine.restore(id, snapshotId))
   handle('keepLocal', (id: string) => saveme.engine.keepLocal(id))
-  handle('connect', (kind: ProviderKind, folder?: string) => saveme.connect(kind, folder))
-  handle('configureAndConnect', (kind: 'gdrive' | 'onedrive', ids: OAuthIds) => saveme.configureAndConnect(kind, ids))
+  handle('connect', (kind: ProviderKind, folder?: string, remoteFolder?: string) => saveme.connect(kind, folder, remoteFolder))
+  handle('configureAndConnect', (kind: 'gdrive' | 'onedrive', ids: OAuthIds, remoteFolder?: string) => saveme.configureAndConnect(kind, ids, remoteFolder))
+  handle('setRemoteFolder', (folder: string) => saveme.setRemoteFolder(folder))
   handle('openUrl', (url: string) => {
     if (/^https:\/\/(console\.cloud\.google\.com|entra\.microsoft\.com|portal\.azure\.com)\//.test(url)) void shell.openExternal(url)
   })

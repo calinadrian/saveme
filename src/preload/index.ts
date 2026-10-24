@@ -11,6 +11,7 @@ const channels = [
   'keepLocal',
   'connect',
   'configureAndConnect',
+  'setRemoteFolder',
   'openUrl',
   'disconnect',
   'refreshQuota',

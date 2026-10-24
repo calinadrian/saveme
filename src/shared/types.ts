@@ -71,6 +71,8 @@ export interface RetentionPolicy {
 export interface Settings {
   provider?: ProviderKind
   localFolder?: string
+  /** Folder inside the storage that holds the backups, per provider (see DEFAULT_REMOTE_FOLDER). */
+  remoteFolder?: Partial<Record<ProviderKind, string>>
   startAtLogin: boolean
   notifications: boolean
   retention: RetentionPolicy
@@ -99,6 +101,8 @@ export interface AppState {
     kind?: ProviderKind
     connected: boolean
     account?: string
+    /** Where backups go, e.g. `My Drive/SaveMe` */
+    location?: string
     configured: Record<ProviderKind, boolean>
   }
   quota?: Quota
@@ -110,3 +114,22 @@ export interface AppState {
 }
 
 export const DEFAULT_RETENTION: RetentionPolicy = { keepLast: 10, keepDaily: 14, keepWeekly: 8 }
+
+/** OneDrive's app folder is already Apps/SaveMe, so no extra folder there by default. */
+export const DEFAULT_REMOTE_FOLDER: Record<ProviderKind, string> = { gdrive: 'SaveMe', onedrive: '', local: 'SaveMe' }
+
+/** Where each storage's folder path starts, as shown to the user. */
+export const REMOTE_ROOT_LABEL: Record<ProviderKind, string> = { gdrive: 'My Drive', onedrive: 'OneDrive/Apps/SaveMe', local: '' }
+
+/** `a\b//c/../d ` -> `a/b/c/d`: forward slashes, no empty, `.` or `..` parts. */
+export function cleanFolder(folder: string): string {
+  return folder
+    .split(/[\\/]+/)
+    .map((p) => p.trim().replace(/[<>:"|?*]/g, ''))
+    .filter((p) => p && p !== '.' && p !== '..')
+    .join('/')
+}
+
+export function remoteFolderFor(settings: Pick<Settings, 'remoteFolder'>, kind: ProviderKind): string {
+  return cleanFolder(settings.remoteFolder?.[kind] ?? DEFAULT_REMOTE_FOLDER[kind])
+}

@@ -8,11 +8,14 @@ export class LocalFolderProvider implements StorageProvider {
   readonly kind = 'local' as const
   readonly label = 'Local folder'
 
-  constructor(private folder: string | undefined) {}
+  constructor(
+    private folder: string | undefined,
+    private base = 'SaveMe'
+  ) {}
 
   private get root(): string {
     if (!this.folder) throw new Error('No backup folder chosen')
-    return path.join(this.folder, 'SaveMe')
+    return path.join(this.folder, this.base)
   }
 
   isConnected(): boolean {
@@ -20,7 +23,7 @@ export class LocalFolderProvider implements StorageProvider {
   }
 
   account(): string | undefined {
-    return this.folder
+    return this.folder && path.join(this.folder, this.base)
   }
 
   async connect(): Promise<void> {

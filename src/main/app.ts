@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { safeStorage, shell } from 'electron'
-import { AppState, Game, ProviderKind, Quota, Settings } from '../shared/types'
+import { AppState, cleanFolder, Game, ProviderKind, Quota, remoteFolderFor, REMOTE_ROOT_LABEL, Settings } from '../shared/types'
 import { BackupEngine } from './backup/engine'
 import { watchDirs } from './backup/snapshot'
 import { LocalFolderProvider } from './cloud/local'
@@ -105,6 +105,7 @@ export class SaveMeApp {
         kind: p?.kind,
         connected: !!p?.isConnected(),
         account: p?.account(),
+        location: p ? this.describeLocation(p.kind) : undefined,
         configured: {
           gdrive: !!(this.ids.googleClientId && this.ids.googleClientSecret),
           onedrive: !!this.ids.microsoftClientId,
@@ -152,44 +153,78 @@ export class SaveMeApp {
 
   private makeProvider(kind?: ProviderKind): StorageProvider | undefined {
     const open = (url: string): void => void shell.openExternal(url)
+    if (!kind) return undefined
+    const base = remoteFolderFor(this.db.data.settings, kind)
     switch (kind) {
       case 'gdrive':
         return this.ids.googleClientId && this.ids.googleClientSecret
-          ? new GoogleDriveProvider(this.ids.googleClientId, this.ids.googleClientSecret, this.tokenStore(), open)
+          ? new GoogleDriveProvider(this.ids.googleClientId, this.ids.googleClientSecret, this.tokenStore(), open, base)
           : undefined
       case 'onedrive':
-        return this.ids.microsoftClientId ? new OneDriveProvider(this.ids.microsoftClientId, this.tokenStore(), open) : undefined
+        return this.ids.microsoftClientId ? new OneDriveProvider(this.ids.microsoftClientId, this.tokenStore(), open, base) : undefined
       case 'local':
-        return new LocalFolderProvider(this.db.data.settings.localFolder)
+        return new LocalFolderProvider(this.db.data.settings.localFolder, base)
       default:
         return undefined
     }
   }
 
   /** Client IDs entered in the app; then signs in right away. */
-  async configureAndConnect(kind: 'gdrive' | 'onedrive', ids: OAuthIds): Promise<void> {
+  async configureAndConnect(kind: 'gdrive' | 'onedrive', ids: OAuthIds, remoteFolder?: string): Promise<void> {
     if (kind === 'gdrive' && !(ids.googleClientId?.trim() && ids.googleClientSecret?.trim())) throw new Error('Paste both the client ID and the client secret')
     if (kind === 'onedrive' && !ids.microsoftClientId?.trim()) throw new Error('Paste the application (client) ID')
     saveOAuthIds(this.userData, ids)
     this.ids = loadOAuthIds(this.userData)
     this.changed()
-    await this.connect(kind)
+    await this.connect(kind, undefined, remoteFolder)
   }
 
-  async connect(kind: ProviderKind, localFolder?: string): Promise<void> {
+  /** Signs in (or opens the folder) and starts backing up into `remoteFolder` inside that storage. */
+  async connect(kind: ProviderKind, localFolder?: string, remoteFolder?: string): Promise<void> {
+    const settings = this.db.data.settings
     if (kind === 'local') {
       if (!localFolder) throw new Error('Choose a folder')
-      this.db.data.settings.localFolder = norm(localFolder)
+      settings.localFolder = norm(localFolder)
     }
+    if (remoteFolder !== undefined) this.setRemoteFolderSetting(kind, remoteFolder)
     const p = this.makeProvider(kind)
     if (!p) throw new Error(`${kind === 'gdrive' ? 'Google Drive' : 'OneDrive'} is not configured. See docs/SETUP.md.`)
     await p.connect()
     if (this.provider && this.provider.kind !== kind) await this.provider.disconnect()
     this.provider = p
-    this.db.data.settings.provider = kind
-    // A different storage has a different history: start fresh comparisons for every game.
+    settings.provider = kind
+    this.db.log({ kind: 'info', message: `Connected to ${p.label}${p.account() ? ` (${p.account()})` : ''}, saving to ${this.describeLocation(kind)}` })
+    await this.startOver()
+  }
+
+  /** Moves future backups to another folder in the same storage. Backups already in the old folder stay there. */
+  async setRemoteFolder(remoteFolder: string): Promise<void> {
+    const kind = this.provider?.kind
+    if (!kind) throw new Error('Connect a storage first')
+    this.setRemoteFolderSetting(kind, remoteFolder)
+    this.provider = this.makeProvider(kind)
+    await this.provider?.connect()
+    this.db.log({ kind: 'info', message: `Backups now go to ${this.describeLocation(kind)}` })
+    await this.startOver()
+  }
+
+  private setRemoteFolderSetting(kind: ProviderKind, folder: string): void {
+    const clean = cleanFolder(folder)
+    if (!clean && kind !== 'onedrive') throw new Error('Enter a folder name')
+    this.db.data.settings.remoteFolder = { ...this.db.data.settings.remoteFolder, [kind]: clean }
+    this.db.save()
+  }
+
+  describeLocation(kind: ProviderKind): string {
+    const folder = remoteFolderFor(this.db.data.settings, kind)
+    const root = kind === 'local' ? this.db.data.settings.localFolder ?? '' : REMOTE_ROOT_LABEL[kind]
+    return [root, folder].filter(Boolean).join('/')
+  }
+
+  /** A different storage or folder has a different history: compare every game afresh and back up. */
+  private async startOver(): Promise<void> {
     for (const g of Object.values(this.db.data.games)) Object.assign(g, { lastSnapshotId: undefined, lastHashes: undefined, newerSnapshot: undefined, status: 'never' })
-    this.db.log({ kind: 'info', message: `Connected to ${p.label}${p.account() ? ` (${p.account()})` : ''}` })
+    this.engine.saveMeBytes = 0
     await this.refreshQuota()
     await this.engine.checkRemote()
     this.backupAll('first-backup')

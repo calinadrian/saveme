@@ -5,13 +5,12 @@ import { checkOk, RemoteEntry, StorageProvider, TokenStore } from './provider'
 const API = 'https://www.googleapis.com/drive/v3'
 const UPLOAD = 'https://www.googleapis.com/upload/drive/v3'
 const FOLDER = 'application/vnd.google-apps.folder'
-const ROOT_NAME = 'SaveMe'
 
 const q = (s: string): string => s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
 
 /**
  * Google Drive with the `drive.file` scope: SaveMe only sees the files it created,
- * stored under a "SaveMe" folder in My Drive.
+ * stored under the chosen folder in My Drive (`base`, e.g. "SaveMe" or "Backups/Games").
  */
 export class GoogleDriveProvider implements StorageProvider {
   readonly kind = 'gdrive' as const
@@ -23,7 +22,8 @@ export class GoogleDriveProvider implements StorageProvider {
     clientId: string,
     clientSecret: string,
     private tokens: TokenStore,
-    private openExternal: (url: string) => void
+    private openExternal: (url: string) => void,
+    private base: string
   ) {
     this.session = new OAuthSession(
       {
@@ -83,16 +83,11 @@ export class GoogleDriveProvider implements StorageProvider {
     return ((await res.json()) as { id: string }).id
   }
 
-  /** Folder id for a relative dir ('' = SaveMe root), creating folders when asked. */
+  /** Folder id for a dir relative to the backup folder ('' = the backup folder itself), creating folders when asked. */
   private async folderId(dir: string, create: boolean): Promise<string | undefined> {
-    const parts = dir.split('/').filter(Boolean)
+    const parts = [...this.base.split('/'), ...dir.split('/')].filter(Boolean)
     let key = ''
-    let id = this.ids.get(key)
-    if (!id) {
-      id = (await this.findChild('root', ROOT_NAME, true)) ?? (create ? await this.createFolder('root', ROOT_NAME) : undefined)
-      if (!id) return undefined
-      this.ids.set(key, id)
-    }
+    let id = 'root'
     for (const part of parts) {
       key = key ? `${key}/${part}` : part
       const cached = this.ids.get(key)
@@ -100,7 +95,7 @@ export class GoogleDriveProvider implements StorageProvider {
         id = cached
         continue
       }
-      const found: string | undefined = (await this.findChild(id!, part, true)) ?? (create ? await this.createFolder(id!, part) : undefined)
+      const found: string | undefined = (await this.findChild(id, part, true)) ?? (create ? await this.createFolder(id, part) : undefined)
       if (!found) return undefined
       this.ids.set(key, found)
       id = found

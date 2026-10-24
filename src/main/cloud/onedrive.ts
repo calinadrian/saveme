@@ -8,7 +8,6 @@ const SIMPLE_UPLOAD_LIMIT = 4 * 1024 * 1024
 /** Upload session chunks must be a multiple of 320 KiB. */
 const CHUNK = 320 * 1024 * 32
 
-const enc = (path: string): string => path.split('/').map(encodeURIComponent).join('/')
 
 /** OneDrive app folder (`Apps/SaveMe`) through Microsoft Graph. */
 export class OneDriveProvider implements StorageProvider {
@@ -19,7 +18,9 @@ export class OneDriveProvider implements StorageProvider {
   constructor(
     clientId: string,
     private tokens: TokenStore,
-    private openExternal: (url: string) => void
+    private openExternal: (url: string) => void,
+    /** Subfolder inside Apps/SaveMe ('' = the app folder itself). */
+    private base: string
   ) {
     this.session = new OAuthSession(
       {
@@ -32,6 +33,11 @@ export class OneDriveProvider implements StorageProvider {
       () => tokens.load('onedrive'),
       (t) => tokens.save('onedrive', t)
     )
+  }
+
+  /** Path inside the app folder, with the chosen subfolder in front, URL-encoded per segment. */
+  private enc(path: string): string {
+    return [...this.base.split('/'), ...path.split('/')].filter(Boolean).map(encodeURIComponent).join('/')
   }
 
   isConnected(): boolean {
@@ -62,11 +68,11 @@ export class OneDriveProvider implements StorageProvider {
 
   async put(path: string, data: Buffer): Promise<void> {
     if (data.length <= SIMPLE_UPLOAD_LIMIT) {
-      await this.fetch(`${APPROOT}:/${enc(path)}:/content`, { method: 'PUT', body: new Uint8Array(data) }, 'Upload')
+      await this.fetch(`${APPROOT}:/${this.enc(path)}:/content`, { method: 'PUT', body: new Uint8Array(data) }, 'Upload')
       return
     }
     const session = await this.fetch(
-      `${APPROOT}:/${enc(path)}:/createUploadSession`,
+      `${APPROOT}:/${this.enc(path)}:/createUploadSession`,
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ item: { '@microsoft.graph.conflictBehavior': 'replace' } }) },
       'Upload start'
     )
@@ -84,13 +90,13 @@ export class OneDriveProvider implements StorageProvider {
   }
 
   async get(path: string): Promise<Buffer | undefined> {
-    const res = await this.fetch(`${APPROOT}:/${enc(path)}:/content`, {}, 'Download', true)
+    const res = await this.fetch(`${APPROOT}:/${this.enc(path)}:/content`, {}, 'Download', true)
     if (res.status === 404) return undefined
     return Buffer.from(await res.arrayBuffer())
   }
 
   async list(dir: string): Promise<RemoteEntry[]> {
-    let url: string | undefined = dir ? `${APPROOT}:/${enc(dir)}:/children?$select=name,size&$top=999` : `${APPROOT}/children?$select=name,size&$top=999`
+    let url: string | undefined = this.enc(dir) ? `${APPROOT}:/${this.enc(dir)}:/children?$select=name,size&$top=999` : `${APPROOT}/children?$select=name,size&$top=999`
     const out: RemoteEntry[] = []
     while (url) {
       const res = await this.fetch(url, {}, 'List', true)
@@ -103,7 +109,7 @@ export class OneDriveProvider implements StorageProvider {
   }
 
   async remove(path: string): Promise<void> {
-    await this.fetch(`${APPROOT}:/${enc(path)}`, { method: 'DELETE' }, 'Delete', true)
+    await this.fetch(`${APPROOT}:/${this.enc(path)}`, { method: 'DELETE' }, 'Delete', true)
   }
 
   async quota(): Promise<Quota> {

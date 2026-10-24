@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { BackupEngine } from '../src/main/backup/engine'
 import { snapshotsToPrune } from '../src/main/backup/retention'
 import { LocalFolderProvider } from '../src/main/cloud/local'
-import { Game, SnapshotMeta } from '../src/shared/types'
+import { cleanFolder, Game, remoteFolderFor, SnapshotMeta } from '../src/shared/types'
 import { Db } from '../src/main/store/db'
 import { resolveTemplate } from '../src/main/detect/scanner'
 import { fakeFolders } from './helpers'
@@ -136,5 +136,23 @@ describe('backup engine', () => {
     delete b.db.data.games['test-game']
     await b.engine.checkRemote()
     expect(b.db.data.games['test-game']?.status).toBe('cloud-newer')
+  })
+})
+
+describe('backup folder', () => {
+  it('cleans user-typed folder names', () => {
+    expect(cleanFolder(' Backups\\Games//PC/../ ')).toBe('Backups/Games/PC')
+    expect(cleanFolder('a:b*c')).toBe('abc')
+    expect(cleanFolder('  ')).toBe('')
+    expect(remoteFolderFor({}, 'gdrive')).toBe('SaveMe')
+    expect(remoteFolderFor({}, 'onedrive')).toBe('')
+    expect(remoteFolderFor({ remoteFolder: { gdrive: 'Games/Saves' } }, 'gdrive')).toBe('Games/Saves')
+  })
+
+  it('writes backups inside the chosen folder', async () => {
+    const root = tmp()
+    const p = new LocalFolderProvider(root, 'Backups/Games')
+    await p.put('test-game/index.json', Buffer.from('{}'))
+    expect(fs.existsSync(path.join(root, 'Backups', 'Games', 'test-game', 'index.json'))).toBe(true)
   })
 })

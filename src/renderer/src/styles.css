@@ -818,6 +818,26 @@ input:focus {
   background: var(--panel-2);
 }
 
+.folder-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.folder-field input {
+  flex: 1;
+}
+
+.folder-root {
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.small {
+  font-size: 12.5px;
+  margin: -4px 0 0;
+}
+
 .steps {
   margin: 0;
   padding-left: 20px;

@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import { cleanFolder, remoteFolderFor, REMOTE_ROOT_LABEL } from '../../../shared/types'
 import type { AppState, ProviderKind, RetentionPolicy } from '../../../shared/types'
 import { api } from '../api'
 import { Toggle, useAction } from '../components'
@@ -19,16 +21,19 @@ export function Settings({ state }: { state: AppState }) {
       <section className="card">
         <h2>Cloud storage</h2>
         {state.provider.connected && state.provider.kind ? (
-          <div className="row">
-            <div className="row-main">
-              <strong>{names[state.provider.kind]}</strong>
-              <span className="muted">{state.provider.account}</span>
+          <>
+            <div className="row">
+              <div className="row-main">
+                <strong>{names[state.provider.kind]}</strong>
+                <span className="muted">{state.provider.account}</span>
+              </div>
+              <button className="btn" onClick={() => run(() => api.refreshQuota())}>Refresh</button>
+              <button className="btn danger" onClick={() => confirm('Disconnect? Backups stop until you connect again. Nothing is deleted from the cloud.') && run(() => api.disconnect())}>
+                Disconnect
+              </button>
             </div>
-            <button className="btn" onClick={() => run(() => api.refreshQuota())}>Refresh</button>
-            <button className="btn danger" onClick={() => confirm('Disconnect? Backups stop until you connect again. Nothing is deleted from the cloud.') && run(() => api.disconnect())}>
-              Disconnect
-            </button>
-          </div>
+            <FolderSetting state={state} />
+          </>
         ) : (
           <ProviderPicker state={state} />
         )}
@@ -97,6 +102,44 @@ export function Settings({ state }: { state: AppState }) {
           SaveMe 0.1 · Save locations come from the <strong>Ludusavi manifest</strong> (MIT), built from PCGamingWiki. Backups are zip files under <code>SaveMe/</code> in your storage, so you can always get to them without this app.
         </p>
       </section>
+    </div>
+  )
+}
+
+function FolderSetting({ state }: { state: AppState }) {
+  const kind = state.provider.kind!
+  const [editing, setEditing] = useState(false)
+  const [folder, setFolder] = useState(remoteFolderFor(state.settings, kind))
+  const [run, error, busy] = useAction()
+  const save = (): Promise<void> =>
+    run(async () => {
+      if (!confirm(`Save future backups to ${[REMOTE_ROOT_LABEL[kind] || state.settings.localFolder, cleanFolder(folder)].filter(Boolean).join('/')}?\n\nBackups already in the old folder stay where they are.`)) return
+      await api.setRemoteFolder(folder)
+      setEditing(false)
+    })
+  return (
+    <div className="setting-folder">
+      {!editing ? (
+        <div className="row">
+          <div className="row-main">
+            <span className="muted">Backups go to</span>
+            <code>{state.provider.location}</code>
+          </div>
+          <button className="btn" onClick={() => setEditing(true)}>Change folder</button>
+        </div>
+      ) : (
+        <div className="form">
+          <div className="folder-field">
+            <span className="folder-root">{kind === 'local' ? state.settings.localFolder : REMOTE_ROOT_LABEL[kind]} /</span>
+            <input autoFocus value={folder} onChange={(e) => setFolder(e.target.value)} placeholder={kind === 'onedrive' ? '(optional subfolder)' : 'SaveMe'} />
+            <button className="btn" onClick={() => setEditing(false)}>Cancel</button>
+            <button className="btn primary" disabled={busy || (kind !== 'onedrive' && !cleanFolder(folder))} onClick={save}>
+              Save
+            </button>
+          </div>
+          {error && <div className="alert err">{error}</div>}
+        </div>
+      )}
     </div>
   )
 }

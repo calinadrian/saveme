@@ -1,0 +1,112 @@
+// Types shared between the main process and the renderer.
+
+export type ProviderKind = 'gdrive' | 'onedrive' | 'local'
+
+export type GameStatus = 'synced' | 'pending' | 'backing-up' | 'cloud-newer' | 'error' | 'never'
+
+export interface SaveRoot {
+  /** Manifest template, e.g. `<winAppData>/Foo/*.sav` */
+  template: string
+  /** Template resolved for this PC (may still contain glob characters) */
+  resolved: string
+}
+
+export interface Game {
+  id: string
+  name: string
+  store?: 'steam' | 'epic' | 'gog' | 'custom'
+  steamId?: number
+  installDir?: string
+  roots: SaveRoot[]
+  tracked: boolean
+  custom?: boolean
+  status: GameStatus
+  sizeBytes: number
+  fileCount: number
+  lastBackupAt?: string
+  lastSnapshotId?: string
+  /** sha256 per portable path of the last snapshot taken or restored on this PC */
+  lastHashes?: Record<string, string>
+  error?: string
+  newerSnapshot?: SnapshotMeta
+}
+
+export interface SnapshotMeta {
+  id: string
+  gameId: string
+  createdAt: string
+  machine: string
+  machineId: string
+  trigger: 'game-exit' | 'file-change' | 'manual' | 'pre-restore' | 'first-backup'
+  sizeBytes: number
+  zipBytes: number
+  files: Record<string, string>
+}
+
+export interface GameIndex {
+  gameId: string
+  name: string
+  snapshots: SnapshotMeta[]
+}
+
+export interface Catalog {
+  updatedAt: string
+  games: {
+    id: string
+    name: string
+    snapshots: number
+    bytes: number
+    lastBackupAt?: string
+    lastSnapshotId?: string
+    lastMachine?: string
+  }[]
+}
+
+export interface RetentionPolicy {
+  keepLast: number
+  keepDaily: number
+  keepWeekly: number
+}
+
+export interface Settings {
+  provider?: ProviderKind
+  localFolder?: string
+  startAtLogin: boolean
+  notifications: boolean
+  retention: RetentionPolicy
+  extraLibraryFolders: string[]
+}
+
+export interface Quota {
+  totalBytes?: number
+  usedBytes?: number
+  account?: string
+}
+
+export interface ActivityItem {
+  at: string
+  gameId?: string
+  kind: 'backup' | 'restore' | 'skip' | 'error' | 'info'
+  message: string
+}
+
+export interface AppState {
+  machine: string
+  settings: Settings
+  games: Game[]
+  activity: ActivityItem[]
+  provider: {
+    kind?: ProviderKind
+    connected: boolean
+    account?: string
+    configured: Record<ProviderKind, boolean>
+  }
+  quota?: Quota
+  saveMeBytes: number
+  scanning: boolean
+  scanProgress?: string
+  running: string[]
+  queue: string[]
+}
+
+export const DEFAULT_RETENTION: RetentionPolicy = { keepLast: 10, keepDaily: 14, keepWeekly: 8 }

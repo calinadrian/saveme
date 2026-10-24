@@ -1,0 +1,19 @@
+appId: app.saveme.desktop
+productName: SaveMe
+directories:
+  buildResources: resources
+  output: dist
+files:
+  - out/**
+  - resources/**
+  - package.json
+asarUnpack:
+  - node_modules/koffi/**
+  - resources/**
+win:
+  target: nsis
+  icon: resources/icon.png
+nsis:
+  oneClick: true
+  perMachine: false
+  runAfterFinish: true

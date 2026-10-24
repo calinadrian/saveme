@@ -1,0 +1,59 @@
+import { ProviderKind, Quota } from '../../shared/types'
+
+export interface RemoteEntry {
+  name: string
+  size: number
+}
+
+/**
+ * Cloud storage, addressed by paths relative to the SaveMe folder
+ * (e.g. `catalog.json`, `elden-ring-1a2b3c/index.json`).
+ */
+export interface StorageProvider {
+  readonly kind: ProviderKind
+  readonly label: string
+  isConnected(): boolean
+  /** Interactive sign-in (opens the browser). */
+  connect(): Promise<void>
+  disconnect(): Promise<void>
+  account(): string | undefined
+  put(path: string, data: Buffer): Promise<void>
+  get(path: string): Promise<Buffer | undefined>
+  list(dir: string): Promise<RemoteEntry[]>
+  remove(path: string): Promise<void>
+  quota(): Promise<Quota>
+}
+
+export interface TokenStore {
+  load(key: string): string | undefined
+  save(key: string, value: string | undefined): void
+}
+
+export async function readJson<T>(p: StorageProvider, path: string): Promise<T | undefined> {
+  const buf = await p.get(path)
+  return buf ? (JSON.parse(buf.toString('utf8')) as T) : undefined
+}
+
+export async function writeJson(p: StorageProvider, path: string, value: unknown): Promise<void> {
+  await p.put(path, Buffer.from(JSON.stringify(value, null, 1)))
+}
+
+export class HttpError extends Error {
+  constructor(
+    public status: number,
+    message: string
+  ) {
+    super(message)
+  }
+}
+
+/** Errors worth retrying later: offline, timeouts, rate limits, server errors. */
+export function isTransient(e: unknown): boolean {
+  if (e instanceof HttpError) return e.status === 429 || e.status >= 500
+  return e instanceof TypeError || (e as { code?: string })?.code === 'ECONNRESET'
+}
+
+export async function checkOk(res: Response, what: string): Promise<Response> {
+  if (!res.ok) throw new HttpError(res.status, `${what}: HTTP ${res.status} ${(await res.text()).slice(0, 300)}`)
+  return res
+}

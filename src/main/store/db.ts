@@ -33,6 +33,7 @@ export class Db {
       settings: {
         startAtLogin: true,
         notifications: true,
+        autoUpdate: true,
         retention: { ...DEFAULT_RETENTION },
         extraLibraryFolders: []
       },

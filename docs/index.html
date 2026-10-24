@@ -4,90 +4,91 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>SaveMe · Never lose a game save</title>
-    <meta name="description" content="SaveMe finds your PC game saves and backs them up to Google Drive, OneDrive or any folder after every play session." />
+    <meta name="description" content="SaveMe finds your PC game saves and backs them up to Google Drive, OneDrive or any folder after every play session. Free and open source." />
     <link rel="icon" href="icon.png" />
     <style>
       :root {
-        --bg: #0f1115;
-        --panel: #171a21;
-        --panel-2: #1e222b;
-        --line: #2a2f3a;
-        --text: #e8eaf0;
-        --muted: #8b92a3;
-        --accent: #6c8cff;
-        --accent-2: #9b7bff;
-        --ok: #3ecf8e;
-        --warn: #f5b84b;
+        --bg: #0c0e11;
+        --surface: #161920;
+        --surface-2: #1c2028;
+        --line: #262a33;
+        --text: #eceef2;
+        --text-2: #b9bec8;
+        --muted: #80879a;
+        --lime: #c8f24a;
+        --lime-ink: #12160a;
+        --amber: #ffc04d;
+        --violet: #b99aff;
+        color-scheme: dark;
       }
       * { box-sizing: border-box; }
       body {
         margin: 0;
-        background: radial-gradient(1200px 700px at 15% -10%, rgba(108, 140, 255, 0.2), transparent),
-          radial-gradient(900px 600px at 110% 30%, rgba(155, 123, 255, 0.14), transparent), var(--bg);
-        color: var(--text);
+        background: radial-gradient(900px 520px at 70% -10%, rgba(200, 242, 74, 0.09), transparent 70%), var(--bg);
+        color: var(--text-2);
         font: 16px/1.6 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, sans-serif;
         -webkit-font-smoothing: antialiased;
       }
       a { color: inherit; }
       .wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px; }
       header { display: flex; align-items: center; justify-content: space-between; padding: 22px 0; }
-      .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 19px; text-decoration: none; }
+      .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 19px; text-decoration: none; color: var(--text); }
+      .brand b { color: var(--lime); }
       .brand img { width: 34px; height: 34px; }
       header nav { display: flex; gap: 22px; color: var(--muted); font-size: 15px; }
       header nav a { text-decoration: none; }
       header nav a:hover { color: var(--text); }
       .hero { display: grid; grid-template-columns: 1.05fr 1fr; gap: 48px; align-items: center; padding: 56px 0 72px; }
-      h1 { font-size: clamp(36px, 6vw, 58px); line-height: 1.05; letter-spacing: -0.03em; margin: 0 0 18px; }
-      h1 span { background: linear-gradient(135deg, var(--accent), var(--accent-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
-      .lead { color: var(--muted); font-size: 19px; margin: 0 0 30px; max-width: 520px; }
+      h1 { font-size: clamp(38px, 6vw, 60px); line-height: 1.04; letter-spacing: -0.035em; margin: 0 0 18px; color: var(--text); }
+      h1 span { color: var(--lime); }
+      .lead { color: var(--text-2); font-size: 19px; margin: 0 0 30px; max-width: 520px; }
       .cta { display: flex; gap: 12px; flex-wrap: wrap; }
-      .btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 20px; border-radius: 10px; text-decoration: none; font-weight: 600; border: 1px solid var(--line); background: var(--panel-2); }
-      .btn:hover { border-color: #3b4252; }
-      .btn.primary { background: linear-gradient(135deg, var(--accent), var(--accent-2)); border-color: transparent; color: white; }
-      .btn.primary:hover { filter: brightness(1.08); }
+      .btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 20px; border-radius: 12px; text-decoration: none; font-weight: 600; border: 1px solid #2f3540; background: var(--surface-2); color: var(--text); }
+      .btn:hover { border-color: #454c5a; }
+      .btn.primary { background: var(--lime); border-color: var(--lime); color: var(--lime-ink); }
+      .btn.primary:hover { background: #b4e033; }
+      .btn svg { width: 18px; height: 18px; }
       .small { color: var(--muted); font-size: 13.5px; margin-top: 14px; }
 
       /* app mockup */
-      .mock { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 18px; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45); }
-      .mock-bar { display: flex; gap: 6px; margin-bottom: 16px; }
-      .mock-bar i { width: 10px; height: 10px; border-radius: 50%; background: #2f3542; }
-      .storage { background: var(--panel-2); border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; }
-      .storage .label { color: var(--muted); font-size: 12.5px; }
-      .storage .value { font-size: 26px; font-weight: 650; }
-      .storage .value small { color: var(--muted); font-size: 14px; font-weight: 500; }
-      .bar { display: flex; height: 9px; border-radius: 5px; background: #262b36; overflow: hidden; margin: 8px 0 6px; }
-      .bar .a { width: 6%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
-      .bar .b { width: 31%; background: #4a5163; }
-      .legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); }
-      .row { display: flex; align-items: center; gap: 12px; padding: 9px 6px; border-radius: 8px; }
-      .cover { width: 64px; height: 30px; border-radius: 5px; flex: none; }
-      .row strong { display: block; font-size: 14px; font-weight: 600; }
+      .mock { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 18px; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5); }
+      .status { display: flex; align-items: center; gap: 14px; padding: 16px; border-radius: 14px; background: linear-gradient(120deg, rgba(200, 242, 74, 0.1), transparent 60%), var(--surface-2); border: 1px solid var(--line); margin-bottom: 12px; }
+      .status i { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 13px; color: var(--lime); background: rgba(200, 242, 74, 0.12); border: 1px solid rgba(200, 242, 74, 0.25); }
+      .status strong { display: block; color: var(--text); font-size: 17px; }
+      .status span { font-size: 13px; color: var(--muted); }
+      .row { display: flex; align-items: center; gap: 12px; padding: 9px 6px; border-radius: 9px; }
+      .cover { width: 64px; height: 30px; border-radius: 6px; flex: none; }
+      .row strong { display: block; font-size: 14px; font-weight: 600; color: var(--text); }
       .row span.m { color: var(--muted); font-size: 12px; }
       .row .grow { flex: 1; min-width: 0; }
-      .pill { font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: 20px; white-space: nowrap; }
-      .pill.ok { color: var(--ok); background: rgba(62, 207, 142, 0.12); }
-      .pill.play { color: #4fc3f7; background: rgba(79, 195, 247, 0.13); }
-      .pill.warn { color: var(--warn); background: rgba(245, 184, 75, 0.13); }
+      .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; padding: 3px 10px; border-radius: 20px; white-space: nowrap; }
+      .pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+      .pill.ok { color: var(--lime); background: rgba(200, 242, 74, 0.12); }
+      .pill.play { color: var(--violet); background: rgba(185, 154, 255, 0.13); }
+      .pill.warn { color: var(--amber); background: rgba(255, 192, 77, 0.13); }
 
       section { padding: 64px 0; }
-      h2 { font-size: clamp(26px, 4vw, 36px); letter-spacing: -0.02em; margin: 0 0 10px; }
+      h2 { font-size: clamp(26px, 4vw, 36px); letter-spacing: -0.025em; margin: 0 0 10px; color: var(--text); }
       .sub { color: var(--muted); margin: 0 0 36px; max-width: 620px; }
       .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-      .feature { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 22px; }
-      .feature .ic { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; font-size: 19px; background: rgba(108, 140, 255, 0.14); margin-bottom: 14px; }
-      .feature h3 { margin: 0 0 6px; font-size: 17px; }
+      .feature { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 22px; }
+      .feature .ic { width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center; color: var(--lime); background: rgba(200, 242, 74, 0.1); margin-bottom: 14px; }
+      .feature .ic svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+      .feature h3 { margin: 0 0 6px; font-size: 17px; color: var(--text); }
       .feature p { margin: 0; color: var(--muted); font-size: 14.5px; }
       .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; counter-reset: step; }
       .step { padding: 22px; border-left: 2px solid var(--line); }
-      .step::before { counter-increment: step; content: counter(step); display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--accent-2)); font-weight: 700; margin-bottom: 12px; }
-      .step h3 { margin: 0 0 6px; font-size: 17px; }
+      .step::before { counter-increment: step; content: counter(step); display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--lime); color: var(--lime-ink); font-weight: 700; margin-bottom: 12px; }
+      .step h3 { margin: 0 0 6px; font-size: 17px; color: var(--text); }
       .step p { margin: 0; color: var(--muted); font-size: 14.5px; }
       .stores { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 28px; }
-      .stores span { border: 1px solid var(--line); background: var(--panel); border-radius: 30px; padding: 6px 14px; font-size: 14px; color: var(--muted); }
-      .final { text-align: center; background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 48px 20px; }
+      .stores span { border: 1px solid var(--line); background: var(--surface); border-radius: 30px; padding: 6px 14px; font-size: 14px; color: var(--muted); }
+      .final { text-align: center; background: var(--surface); border: 1px solid var(--line); border-radius: 22px; padding: 48px 20px; }
       .final .cta { justify-content: center; }
-      footer { color: var(--muted); font-size: 13.5px; padding: 36px 0 48px; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-      code { font: 13px Consolas, monospace; color: #c9d1ff; }
+      footer { color: var(--muted); font-size: 13.5px; padding: 36px 0 48px; display: flex; flex-direction: column; gap: 10px; }
+      footer .links { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+      footer a:hover { color: var(--text); }
+      footer p { margin: 0; font-size: 12.5px; }
 
       @media (max-width: 860px) {
         .hero { grid-template-columns: 1fr; padding-top: 28px; }
@@ -99,11 +100,11 @@
   <body>
     <div class="wrap">
       <header>
-        <a class="brand" href="#"><img src="icon.png" alt="" />SaveMe</a>
+        <a class="brand" href="#"><img src="icon.png" alt="" /><span>Save<b>Me</b></span></a>
         <nav>
           <a href="#features">Features</a>
           <a href="#how">How it works</a>
-          <a href="https://github.com/calinadrian/saveme">GitHub</a>
+          <a href="https://github.com/calinadrian/saveme">Source code</a>
         </nav>
       </header>
 
@@ -112,38 +113,38 @@
           <h1>Never lose a <span>game save</span> again.</h1>
           <p class="lead">SaveMe finds your PC game saves on its own and backs them up to Google Drive, OneDrive or any folder, quietly, every time you stop playing.</p>
           <div class="cta">
-            <a class="btn primary" href="https://github.com/calinadrian/saveme/releases">Download for Windows</a>
+            <a class="btn primary" href="https://github.com/calinadrian/saveme/releases/latest">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 20h14" /></svg>
+              Download for Windows
+            </a>
             <a class="btn" href="https://github.com/calinadrian/saveme">View source</a>
           </div>
-          <p class="small">Free and open source · Windows 10/11 · Your saves stay in your own cloud</p>
+          <p class="small">Free and open source (MIT) · Windows 10/11 · Updates itself · Your saves stay in your own storage</p>
         </div>
 
         <div class="mock" aria-hidden="true">
-          <div class="mock-bar"><i></i><i></i><i></i></div>
-          <div class="storage">
-            <div class="label">Google Drive</div>
-            <div class="value">9.4 GB <small>free of 15 GB</small></div>
-            <div class="bar"><span class="a"></span><span class="b"></span></div>
-            <div class="legend"><span>■ SaveMe 212 MB</span><span>Other 5.4 GB</span></div>
+          <div class="status">
+            <i><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5.4c0 4.4-2.9 7.9-7 9.6-4.1-1.7-7-5.2-7-9.6V6zM8.8 12.1l2.2 2.2 4.3-4.5" /></svg></i>
+            <div><strong>All 23 games are backed up</strong><span>Last backup 2 minutes ago to Google Drive</span></div>
           </div>
           <div class="row">
-            <div class="cover" style="background: linear-gradient(135deg, #3d5a80, #1b2a41)"></div>
-            <div class="grow"><strong>Elden Ring</strong><span class="m">12 files · 4.2 MB · 2 min ago</span></div>
+            <div class="cover" style="background: linear-gradient(140deg, #3d4f66, #1b2431)"></div>
+            <div class="grow"><strong>Elden Ring</strong><span class="m">2 minutes ago · 4.2 MB</span></div>
             <span class="pill ok">Backed up</span>
           </div>
           <div class="row">
-            <div class="cover" style="background: linear-gradient(135deg, #6b4e9b, #2b1f45)"></div>
-            <div class="grow"><strong>Hollow Knight</strong><span class="m">6 files · 1.1 MB</span></div>
-            <span class="pill play">● Playing</span>
+            <div class="cover" style="background: linear-gradient(140deg, #4f4466, #211b31)"></div>
+            <div class="grow"><strong>Hollow Knight</strong><span class="m">1.1 MB · 6 files</span></div>
+            <span class="pill play">Playing</span>
           </div>
           <div class="row">
-            <div class="cover" style="background: linear-gradient(135deg, #8a5a2b, #3a2410)"></div>
-            <div class="grow"><strong>Project Zomboid</strong><span class="m">Newer save from DESKTOP-LIVINGRM</span></div>
+            <div class="cover" style="background: linear-gradient(140deg, #665238, #31261b)"></div>
+            <div class="grow"><strong>Project Zomboid</strong><span class="m">Newer save from LIVING-ROOM-PC</span></div>
             <span class="pill warn">Newer in cloud</span>
           </div>
           <div class="row">
-            <div class="cover" style="background: linear-gradient(135deg, #2b7a6b, #0f3530)"></div>
-            <div class="grow"><strong>Stardew Valley</strong><span class="m">3 files · 380 KB · yesterday</span></div>
+            <div class="cover" style="background: linear-gradient(140deg, #3c6650, #1b3127)"></div>
+            <div class="grow"><strong>Stardew Valley</strong><span class="m">yesterday · 380 KB</span></div>
             <span class="pill ok">Backed up</span>
           </div>
         </div>
@@ -155,12 +156,12 @@
         <h2>Set it up once, then forget it</h2>
         <p class="sub">No save folders to hunt down and no backup buttons to remember. SaveMe runs in the tray and handles it.</p>
         <div class="features">
-          <div class="feature"><div class="ic">🔍</div><h3>Finds saves automatically</h3><p>Knows where 20,000+ games keep their saves, and checks your Steam, Epic and GOG libraries.</p></div>
-          <div class="feature"><div class="ic">🎮</div><h3>Backs up when you quit</h3><p>Sees when a game closes and uploads the new save seconds later. If nothing changed, nothing is uploaded.</p></div>
-          <div class="feature"><div class="ic">🕘</div><h3>Version history</h3><p>Go back to any earlier save in one click. Your current save is always backed up first, so a restore never loses anything.</p></div>
-          <div class="feature"><div class="ic">💻</div><h3>Play on any PC</h3><p>Played on your laptop? Your desktop tells you a newer save is waiting. A fresh install never overwrites your progress.</p></div>
-          <div class="feature"><div class="ic">☁️</div><h3>Your cloud, your files</h3><p>Google Drive (15 GB free), OneDrive (5 GB free) or any folder. Backups are plain zip files you can open without SaveMe.</p></div>
-          <div class="feature"><div class="ic">📊</div><h3>Storage at a glance</h3><p>See free space and exactly how much SaveMe uses. Old versions are thinned out automatically.</p></div>
+          <div class="feature"><div class="ic"><svg viewBox="0 0 24 24"><path d="M10.8 17.6a6.8 6.8 0 1 0 0-13.6 6.8 6.8 0 0 0 0 13.6zM15.8 15.8 20 20" /></svg></div><h3>Finds saves automatically</h3><p>Knows where 20,000+ games keep their saves, and checks your Steam, Epic and GOG libraries.</p></div>
+          <div class="feature"><div class="ic"><svg viewBox="0 0 24 24"><path d="M7 8h10a4 4 0 0 1 4 4v1.2a2.8 2.8 0 0 1-5.1 1.6L14.8 14H9.2l-1.1.8A2.8 2.8 0 0 1 3 13.2V12a4 4 0 0 1 4-4zM8 10.3v3.4M6.3 12h3.4" /></svg></div><h3>Backs up when you quit</h3><p>Sees when a game closes and uploads the new save seconds later. If nothing changed, nothing is uploaded.</p></div>
+          <div class="feature"><div class="ic"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.34-5.66M4 4.5v4h4M12 8v4l2.8 1.8" /></svg></div><h3>Version history</h3><p>Go back to any earlier save in one click. Your current save is always backed up first, so a restore never loses anything.</p></div>
+          <div class="feature"><div class="ic"><svg viewBox="0 0 24 24"><path d="M3.5 5h17v11h-17zM8.5 20h7M12 16v4" /></svg></div><h3>Play on any PC</h3><p>Played on your laptop? Your desktop tells you a newer save is waiting. A fresh install never overwrites your progress.</p></div>
+          <div class="feature"><div class="ic"><svg viewBox="0 0 24 24"><path d="M7 18.5a4.5 4.5 0 0 1-.4-8.98A6 6 0 0 1 18.2 9.8 4.35 4.35 0 0 1 17.5 18.5z" /></svg></div><h3>Your storage, your files</h3><p>Google Drive (15 GB free), OneDrive (5 GB free) or any folder. Backups are plain zip files you can open without SaveMe.</p></div>
+          <div class="feature"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 20h14" /></svg></div><h3>Always up to date</h3><p>New versions download in the background and install while SaveMe is idle. Your games and settings stay as they are.</p></div>
         </div>
       </div>
     </section>
@@ -170,9 +171,9 @@
         <h2>How it works</h2>
         <p class="sub">Three steps, about a minute.</p>
         <div class="steps">
-          <div class="step"><h3>Install and connect</h3><p>Pick Google Drive, OneDrive or a folder, then sign in with your browser.</p></div>
+          <div class="step"><h3>Install and connect</h3><p>Run the installer (no admin rights needed), pick Google Drive, OneDrive or a folder, and sign in with your browser.</p></div>
           <div class="step"><h3>SaveMe scans</h3><p>It finds every game with saves on your PC and makes the first backup.</p></div>
-          <div class="step"><h3>Just play</h3><p>Each time you close a game, its saves are backed up. You'll get a quiet notification.</p></div>
+          <div class="step"><h3>Just play</h3><p>Each time you close a game, its saves are backed up in the background.</p></div>
         </div>
         <div class="stores"><span>Steam</span><span>Epic Games</span><span>GOG</span><span>Xbox / Game Pass</span><span>Custom folders</span></div>
       </div>
@@ -183,15 +184,18 @@
         <div class="final">
           <h2>Back up your saves before you need them</h2>
           <p class="sub" style="margin: 0 auto 26px">Free, open source and private: SaveMe has no servers and never sees your files.</p>
-          <div class="cta"><a class="btn primary" href="https://github.com/calinadrian/saveme/releases">Download for Windows</a></div>
+          <div class="cta"><a class="btn primary" href="https://github.com/calinadrian/saveme/releases/latest">Download for Windows</a></div>
         </div>
       </div>
     </section>
 
     <div class="wrap">
       <footer>
-        <span>© 2026 SaveMe · <a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a></span>
-        <span>Save locations from the <a href="https://github.com/mtkennerly/ludusavi-manifest">Ludusavi manifest</a> / PCGamingWiki</span>
+        <div class="links">
+          <span>© 2026 calinadrian · <a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a> · <a href="ro/confidentialitate.html" lang="ro">Confidențialitate</a> · <a href="ro/termeni.html" lang="ro">Termeni</a></span>
+          <span>Save locations from the <a href="https://github.com/mtkennerly/ludusavi-manifest">Ludusavi manifest</a>, compiled from <a href="https://www.pcgamingwiki.com">PCGamingWiki</a></span>
+        </div>
+        <p>SaveMe isn't affiliated with or endorsed by Valve, Epic Games, GOG, Google or Microsoft. Product and game names are trademarks of their owners. This site uses no cookies.</p>
       </footer>
     </div>
   </body>

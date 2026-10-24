@@ -1,7 +1,8 @@
 appId: app.saveme.desktop
 productName: SaveMe
+copyright: Copyright © 2026 calinadrian
 directories:
-  buildResources: resources
+  buildResources: build
   output: dist
 files:
   - out/**
@@ -10,10 +11,26 @@ files:
 asarUnpack:
   - node_modules/koffi/**
   - resources/**
+electronLanguages:
+  - en-US
 win:
   target: nsis
-  icon: resources/icon.png
+  icon: resources/icon.ico
+  executableName: SaveMe
+# One click, per user, no admin rights; the app opens when it's done (same as rdal).
 nsis:
+  include: build/installer.nsh
   oneClick: true
   perMachine: false
   runAfterFinish: true
+  # Matches the privacy policy: uninstalling removes %APPDATA%\SaveMe. Updates keep it.
+  deleteAppDataOnUninstall: true
+  artifactName: SaveMe-Setup-${version}.${ext}
+  shortcutName: SaveMe
+  uninstallDisplayName: SaveMe
+# Installed copies update from GitHub releases (src/main/updates.ts, scripts/release.mjs).
+publish:
+  provider: github
+  owner: calinadrian
+  repo: saveme
+  releaseType: release

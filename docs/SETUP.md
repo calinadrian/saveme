@@ -42,7 +42,8 @@ Backups go to `OneDrive/Apps/SaveMe`.
 npm install
 npm run dev        # development with hot reload
 npm test           # unit tests
-npm run build:win  # NSIS installer in dist/
+npm run package    # installer in dist/ (SaveMe-Setup-<version>.exe)
+npm run release    # build, tag and publish a GitHub release (see README)
 ```
 
 The npm used here blocks install scripts by default, so approve the ones SaveMe needs once:

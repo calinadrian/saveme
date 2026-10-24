@@ -75,6 +75,8 @@ export interface Settings {
   remoteFolder?: Partial<Record<ProviderKind, string>>
   startAtLogin: boolean
   notifications: boolean
+  /** Check GitHub for new versions on launch and every 6 hours, and install them while idle in the tray. */
+  autoUpdate: boolean
   retention: RetentionPolicy
   extraLibraryFolders: string[]
 }
@@ -111,6 +113,21 @@ export interface AppState {
   scanProgress?: string
   running: string[]
   queue: string[]
+}
+
+export type UpdateNotes = { title: string; items: string[] }[]
+
+export interface UpdateState {
+  /** The running version */
+  current: string
+  /** `dev`: not an installed copy, so it never updates */
+  status: 'dev' | 'idle' | 'checking' | 'latest' | 'downloading' | 'ready' | 'installing' | 'error'
+  /** The new version, while downloading or ready */
+  version?: string
+  percent?: number
+  notes?: UpdateNotes
+  checkedAt?: number
+  message?: string
 }
 
 export const DEFAULT_RETENTION: RetentionPolicy = { keepLast: 10, keepDaily: 14, keepWeekly: 8 }

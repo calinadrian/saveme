@@ -4,55 +4,169 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>SaveMe Privacy Policy</title>
+    <meta name="description" content="What data SaveMe handles, where it goes, and your rights under the GDPR." />
     <link rel="icon" href="icon.png" />
+    <link rel="alternate" hreflang="ro" href="ro/confidentialitate.html" />
     <link rel="stylesheet" href="legal.css" />
   </head>
   <body>
     <main>
-      <a class="brand" href="./"><img src="icon.png" alt="" />SaveMe</a>
+      <div class="top">
+        <a class="brand" href="./"><img src="icon.png" alt="" /><span>Save<b>Me</b></span></a>
+        <span class="lang"><strong>English</strong><a href="ro/confidentialitate.html" hreflang="ro" lang="ro">Română</a></span>
+      </div>
       <h1>Privacy Policy</h1>
       <p class="muted">Last updated: October 24, 2026</p>
 
-      <p>SaveMe is a desktop app for Windows that backs up your PC game saves to cloud storage you own. This policy explains what data it touches and why.</p>
+      <p>
+        SaveMe is a free, open-source Windows app that backs up your PC game saves to storage you choose. This policy explains what data SaveMe handles, where that data goes, and your
+        rights under the EU General Data Protection Regulation (GDPR).
+      </p>
 
-      <h2>The short version</h2>
-      <ul>
-        <li>SaveMe has <strong>no servers</strong>. Your files go straight from your PC to your own Google Drive, OneDrive or folder.</li>
-        <li>SaveMe does <strong>not collect, sell or share</strong> any personal data, and has no analytics or tracking.</li>
-        <li>On Google Drive, SaveMe can only see <strong>the files it created</strong>. It can't read anything else in your Drive.</li>
-      </ul>
+      <div class="summary">
+        <ul>
+          <li>SaveMe has <strong>no servers and no user accounts</strong>. The publisher never receives your game saves, files, sign-in details or any other personal data.</li>
+          <li>Your backups go <strong>straight from your PC</strong> to your own Google Drive, OneDrive or a folder you pick.</li>
+          <li>No analytics, tracking, advertising or cookies, in the app or on this website.</li>
+          <li>On Google Drive, SaveMe can only see <strong>the files it created</strong>.</li>
+        </ul>
+      </div>
 
-      <h2>Data SaveMe uses</h2>
+      <h2>Who publishes SaveMe</h2>
+      <p>
+        SaveMe is published by <strong>calinadrian</strong>, an individual developer based in Romania (“we”). Contact:
+        <a href="mailto:hassian.inbox@gmail.com">hassian.inbox@gmail.com</a>. For bugs and questions that don't involve personal details, you can also use
+        <a href="https://github.com/calinadrian/saveme/issues">GitHub issues</a>.
+      </p>
+
+      <h2>What SaveMe handles on your PC</h2>
+      <p>All of this happens on your own computer, under your control, to provide the backups you set up. We don't receive any of it.</p>
+      <div class="table-wrap">
+        <table>
+          <tr>
+            <th>Data</th>
+            <th>Why</th>
+            <th>Where it's kept</th>
+          </tr>
+          <tr>
+            <td>Game save files</td>
+            <td>To back them up and restore them</td>
+            <td>Zipped and uploaded to the storage you chose</td>
+          </tr>
+          <tr>
+            <td>Your cloud account's email and storage quota</td>
+            <td>To show which account is connected and how much space is free</td>
+            <td>Only on your PC</td>
+          </tr>
+          <tr>
+            <td>Sign-in tokens for Google or Microsoft</td>
+            <td>To reach your storage without asking you to sign in each time</td>
+            <td>Only on your PC, encrypted with Windows data protection</td>
+          </tr>
+          <tr>
+            <td>Your PC's name and a random ID for this installation</td>
+            <td>To show which PC a save came from, and to stop two PCs overwriting each other</td>
+            <td>With each backup, in your storage</td>
+          </tr>
+          <tr>
+            <td>The list of running programs</td>
+            <td>To notice when a game closes so it can be backed up</td>
+            <td>Checked in memory, never stored or sent anywhere</td>
+          </tr>
+          <tr>
+            <td>Installed games, save locations, backup history and settings</td>
+            <td>To run the app</td>
+            <td>Only on your PC, in <code>%APPDATA%\SaveMe</code></td>
+          </tr>
+        </table>
+      </div>
+      <p>
+        Backups are ordinary zip files. SaveMe doesn't encrypt them, so they are as private as the storage account or folder you keep them in. Use a strong password and two-step verification for
+        your cloud account.
+      </p>
+
+      <h2>Services SaveMe connects to</h2>
+      <p>SaveMe talks directly to the services below. Each is responsible for the data it receives under its own privacy policy; we don't receive a copy.</p>
       <ul>
-        <li><strong>Game save files</strong> on your PC, from known save locations. They are zipped and uploaded to your chosen storage.</li>
-        <li><strong>Your account email and storage quota</strong>, read from Google or Microsoft so the app can show which account is connected and how much space is free.</li>
-        <li><strong>Sign-in tokens</strong>, kept only on your PC and encrypted with Windows data protection. They are used only to reach your storage.</li>
-        <li><strong>Your PC's name</strong>, stored with each backup so you can tell which PC a save came from.</li>
-        <li><strong>A list of running programs</strong>, checked locally to notice when a game closes. It never leaves your PC.</li>
+        <li>
+          <strong>Google Drive</strong> or <strong>Microsoft OneDrive</strong>, if you connect one: your backups are stored in your account. See the
+          <a href="https://policies.google.com/privacy">Google Privacy Policy</a> and the <a href="https://privacy.microsoft.com/privacystatement">Microsoft Privacy Statement</a>.
+        </li>
+        <li>
+          <strong>GitHub</strong> (owned by Microsoft): SaveMe downloads the public list of game save locations (the
+          <a href="https://github.com/mtkennerly/ludusavi-manifest">Ludusavi manifest</a>), checks GitHub Releases for new versions on launch and every 6 hours (you can turn this off in Settings), and
+          downloads updates from there. This website is also hosted on GitHub Pages. See the
+          <a href="https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement">GitHub Privacy Statement</a>.
+        </li>
+        <li><strong>Steam's image servers</strong> (Valve): to show cover art for games that have a Steam ID.</li>
       </ul>
+      <p>
+        As with any internet request, these services see your IP address and basic technical details such as the app's user agent. No other personal data is sent with the GitHub and Steam
+        requests. Some of these companies process data outside the European Economic Area under their own safeguards, such as the EU–US Data Privacy Framework.
+      </p>
 
       <h2>Google user data</h2>
       <p>
-        SaveMe asks only for the <code>https://www.googleapis.com/auth/drive.file</code> permission. It uses this to create, read, update and delete its own backup files in a <code>SaveMe</code> folder in your Google Drive, and to read your storage quota.
-        SaveMe's use and transfer of information received from Google APIs follows the
-        <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements.
-        This data is never transferred to anyone else, used for advertising, or used to train AI or machine-learning models.
+        SaveMe asks only for the <code>https://www.googleapis.com/auth/drive.file</code> permission. It uses it to create, read, update and delete its own backup files in the folder you choose in
+        your Google Drive (<code>SaveMe</code> by default), and to read your account email and storage quota. It can't see any other files in your Drive.
+      </p>
+      <p>
+        SaveMe's use and transfer to any other app of information received from Google APIs will adhere to the
+        <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements. This data stays between your PC and
+        your Google account: it is never sent to us or anyone else, never used for advertising, and never used to train AI or machine-learning models.
       </p>
 
       <h2>Microsoft OneDrive</h2>
-      <p>SaveMe asks only for <code>Files.ReadWrite.AppFolder</code>, <code>User.Read</code> and <code>offline_access</code>. It works only inside the <code>Apps/SaveMe</code> folder of your OneDrive.</p>
+      <p>
+        SaveMe asks only for <code>Files.ReadWrite.AppFolder</code>, <code>User.Read</code> and <code>offline_access</code>. It works only inside the <code>Apps/SaveMe</code> folder of your
+        OneDrive and reads your account name and storage quota.
+      </p>
 
-      <h2>Third parties</h2>
-      <p>SaveMe downloads a public list of game save locations from GitHub (the Ludusavi manifest) and, for display only, game cover images from Steam's public image servers. No personal data is sent with these requests.</p>
+      <h2>When you contact us</h2>
+      <p>
+        If you email us or open a GitHub issue, we use what you send (such as your email address and message) only to answer you. The legal basis is our legitimate interest in supporting the
+        people who use SaveMe (Art. 6(1)(f) GDPR). We delete emails when they're no longer needed, at the latest two years after the conversation ends. GitHub issues are public, so don't post
+        personal details there.
+      </p>
 
-      <h2>Keeping and deleting your data</h2>
-      <p>Backups stay in your storage until you delete them. To revoke access, disconnect in SaveMe's Settings, or remove SaveMe at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a> or <a href="https://account.live.com/consent/Manage">account.live.com/consent/Manage</a>. Uninstalling SaveMe removes its local data from <code>%APPDATA%\SaveMe</code>.</p>
+      <h2>This website</h2>
+      <p>
+        This website sets no cookies and uses no analytics, ads, embedded content or external fonts. It's hosted on GitHub Pages, which may log visitors' IP addresses for security, as described
+        in GitHub's privacy statement.
+      </p>
+
+      <h2>Removing your data</h2>
+      <ul>
+        <li><strong>Stop backups:</strong> choose Disconnect in SaveMe's Settings. This deletes the sign-in tokens from your PC.</li>
+        <li>
+          <strong>Withdraw access:</strong> remove SaveMe at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a> or
+          <a href="https://account.live.com/consent/Manage">account.live.com/consent/Manage</a>.
+        </li>
+        <li><strong>Local data:</strong> uninstalling SaveMe deletes <code>%APPDATA%\SaveMe</code>. Updates keep it.</li>
+        <li><strong>Backups:</strong> they stay in your storage until you delete the backup folder there yourself.</li>
+      </ul>
+
+      <h2>Your rights</h2>
+      <p>
+        Under the GDPR you have the right to access, correct and delete your personal data, to restrict or object to its processing, and to data portability. Because SaveMe doesn't send us your
+        data, we usually hold nothing about you beyond any messages you've sent us; to exercise your rights for those, email us and we'll reply within one month. For data held by Google,
+        Microsoft or GitHub, contact them directly.
+      </p>
+      <p>
+        You can also complain to a data protection authority. In Romania that's the
+        <a href="https://www.dataprotection.ro">Autoritatea Națională de Supraveghere a Prelucrării Datelor cu Caracter Personal (ANSPDCP)</a>, Bd. G-ral. Gheorghe Magheru 28-30, Sector 1,
+        010336 București, <a href="mailto:anspdcp@dataprotection.ro">anspdcp@dataprotection.ro</a>. You can also contact the authority in the EU country where you live or work.
+      </p>
 
       <h2>Children</h2>
-      <p>SaveMe is not directed at children under 13 and collects no information from anyone.</p>
+      <p>SaveMe isn't directed at children and collects no data from anyone. To connect a cloud account, you need to meet that service's own age requirements.</p>
 
-      <h2>Changes and contact</h2>
-      <p>Changes to this policy will be posted on this page. For questions, open an issue at <a href="https://github.com/calinadrian/saveme/issues">github.com/calinadrian/saveme/issues</a>.</p>
+      <h2>Changes</h2>
+      <p>We'll post any changes on this page and update the date above. Significant changes will also be mentioned in the release notes of the version that brings them.</p>
+
+      <footer>
+        © 2026 calinadrian · <a href="terms.html">Terms of use</a> · <a href="./">SaveMe home</a>
+      </footer>
     </main>
   </body>
 </html>

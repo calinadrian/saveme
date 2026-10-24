@@ -1,25 +1,29 @@
 import { useState } from 'react'
 import { cleanFolder, remoteFolderFor, REMOTE_ROOT_LABEL } from '../../../shared/types'
 import type { AppState, ProviderKind } from '../../../shared/types'
-import { api, formatBytes } from '../api'
-import { useAction } from '../components'
+import { api, formatBytes, plural, SITE } from '../api'
+import { BrandMark, Icon, IconName, Spinner, useAction } from '../components'
 
-const PROVIDERS: { kind: ProviderKind; name: string; free: string; note: string }[] = [
-  { kind: 'gdrive', name: 'Google Drive', free: '15 GB free', note: 'SaveMe can only see the files it creates.' },
-  { kind: 'onedrive', name: 'OneDrive', free: '5 GB free', note: 'Stored under Apps/SaveMe.' },
-  { kind: 'local', name: 'Folder', free: 'Any drive', note: 'External drive, NAS or a synced folder.' }
+const PROVIDERS: { kind: ProviderKind; name: string; free: string; note: string; icon: IconName }[] = [
+  { kind: 'gdrive', name: 'Google Drive', free: '15 GB free', note: 'SaveMe can only see the files it creates.', icon: 'cloud' },
+  { kind: 'onedrive', name: 'OneDrive', free: '5 GB free', note: 'Kept in Apps/SaveMe, away from your other files.', icon: 'cloud' },
+  { kind: 'local', name: 'A folder', free: 'Any drive', note: 'External drive, NAS or a folder another app syncs.', icon: 'drive' }
 ]
 
 export function ProviderPicker({ state, onCancel }: { state: AppState; onCancel?: () => void }) {
   const [selected, setSelected] = useState<ProviderKind>()
   return (
     <>
-      <div className="providers">
+      <div className="providers" role="radiogroup" aria-label="Where backups go">
         {PROVIDERS.map((p) => (
-          <button key={p.kind} className={`provider ${p.kind}${selected === p.kind ? ' selected' : ''}`} onClick={() => setSelected(p.kind)}>
-            <span className="provider-logo" />
+          <button key={p.kind} role="radio" aria-checked={selected === p.kind} className={`provider ${p.kind}${selected === p.kind ? ' selected' : ''}`} onClick={() => setSelected(p.kind)}>
+            <span className="provider-top">
+              <span className="provider-logo">
+                <Icon name={p.icon} size={20} />
+              </span>
+              <span className="provider-free">{p.free}</span>
+            </span>
             <strong>{p.name}</strong>
-            <span className="provider-free">{p.free}</span>
             <span className="muted">{state.provider.configured[p.kind] ? p.note : 'One-time setup, then sign in'}</span>
           </button>
         ))}
@@ -76,7 +80,7 @@ function ConnectPanel({ kind, state, onCancel }: { kind: ProviderKind; state: Ap
 
   return (
     <div className="card form setup">
-      <h2>Connect {name}</h2>
+      <h2 className="setup-title">{kind === 'local' ? 'Back up to a folder' : `Connect ${name}`}</h2>
       {needsSetup && (
         <>
           <p className="muted">
@@ -88,7 +92,7 @@ function ConnectPanel({ kind, state, onCancel }: { kind: ProviderKind; state: Ap
                 {s.text}
                 {s.url && (
                   <button className="link" onClick={() => api.openUrl(s.url!)}>
-                    Open ↗
+                    Open <Icon name="external" size={13} />
                   </button>
                 )}
               </li>
@@ -113,7 +117,7 @@ function ConnectPanel({ kind, state, onCancel }: { kind: ProviderKind; state: Ap
           <div className="picker">
             <input value={localRoot} onChange={(e) => setLocalRoot(e.target.value)} placeholder="E:\Backups" />
             <button className="btn" onClick={async () => setLocalRoot((await api.pickFolder('Where should SaveMe keep backups?')) ?? localRoot)}>
-              Browse
+              <Icon name="folder" size={16} /> Browse
             </button>
           </div>
         </label>
@@ -132,7 +136,9 @@ function ConnectPanel({ kind, state, onCancel }: { kind: ProviderKind; state: Ap
 
       {error && <div className="alert err">{error}</div>}
       <div className="actions">
-        <button className="btn" onClick={onCancel}>Cancel</button>
+        <button className="btn ghost" onClick={onCancel}>
+          Cancel
+        </button>
         <button className="btn primary" disabled={!ready || busy} onClick={connect}>
           {busy ? (kind === 'local' ? 'Connecting…' : 'Waiting for sign-in in your browser…') : kind === 'local' ? 'Use this folder' : needsSetup ? 'Save and sign in' : 'Sign in'}
         </button>
@@ -147,32 +153,53 @@ export function Onboarding({ state, onDone }: { state: AppState; onDone: () => v
   return (
     <div className="onboarding">
       <div className="onboarding-card">
-        <div className="brand big">
-          <span className="logo">S</span>
-          <span>SaveMe</span>
-        </div>
+        <BrandMark size={56} tile />
         <h1>Never lose a game save again</h1>
-        <p className="lead">SaveMe finds your game saves, backs them up after every play session, and keeps older versions you can go back to.</p>
+        <p className="lead">SaveMe finds your saves, backs them up every time you stop playing, and keeps older versions you can go back to.</p>
 
-        <div className="scan-status">
-          {state.scanning ? (
-            <>
-              <span className="spinner" /> {state.scanProgress}
-            </>
-          ) : found ? (
-            <>
-              ✓ Found saves for <strong>{found} games</strong> ({formatBytes(size)})
-            </>
-          ) : (
-            'No game saves found yet.'
-          )}
-        </div>
+        <ol className="onboarding-steps">
+          <li className={state.scanning ? 'active' : 'done'}>
+            <span className="step-mark">{state.scanning ? <Spinner size={14} /> : <Icon name="check" size={14} />}</span>
+            <div>
+              <strong>Find your games</strong>
+              <span className="muted">
+                {state.scanning ? state.scanProgress : found ? `Found saves for ${plural(found, 'game')} (${formatBytes(size)})` : 'No saves found yet. You can add games later.'}
+              </span>
+            </div>
+          </li>
+          <li className="active">
+            <span className="step-mark">2</span>
+            <div>
+              <strong>Choose where backups go</strong>
+              <span className="muted">Your own cloud or a folder. SaveMe has no servers of its own.</span>
+            </div>
+          </li>
+          <li>
+            <span className="step-mark">3</span>
+            <div>
+              <strong>Play</strong>
+              <span className="muted">SaveMe runs in the tray and backs up each game when you close it.</span>
+            </div>
+          </li>
+        </ol>
 
-        <h2>Where should backups go?</h2>
         <ProviderPicker state={state} />
-        <button className="link skip" onClick={onDone}>
-          Skip for now
-        </button>
+        <footer className="onboarding-foot">
+          <span className="muted">
+            By using SaveMe you agree to the{' '}
+            <button className="link" onClick={() => api.openUrl(SITE + 'terms.html')}>
+              terms
+            </button>
+            . See how your data is handled in the{' '}
+            <button className="link" onClick={() => api.openUrl(SITE + 'privacy.html')}>
+              privacy policy
+            </button>
+            .
+          </span>
+          <button className="link skip" onClick={onDone}>
+            Skip for now
+          </button>
+        </footer>
       </div>
     </div>
   )

@@ -1,10 +1,17 @@
+import path from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
-import { ProviderKind, Settings } from '../shared/types'
+import { ProviderKind, Settings, UpdateState } from '../shared/types'
 import { SaveMeApp } from './app'
 import { OAuthIds } from './config'
 
+/** Links the UI may open: app registration, SaveMe's site and repo, and where users revoke SaveMe's access. */
+const EXTERNAL = /^https:\/\/(console\.cloud\.google\.com|entra\.microsoft\.com|portal\.azure\.com|calinadrian\.github\.io\/saveme|github\.com\/calinadrian\/saveme|myaccount\.google\.com\/permissions|account\.live\.com\/consent)(\/|$)/
+
 /** Every renderer call; the preload exposes the same names as `window.saveme`. */
-export function registerIpc(saveme: SaveMeApp, win: () => BrowserWindow | undefined): void {
+export function registerIpc(
+  saveme: SaveMeApp,
+  { win, updates, resources }: { win: () => BrowserWindow | undefined; updates: { get(): UpdateState; check(): UpdateState; install(): void }; resources: string }
+): void {
   const handle = (channel: string, fn: (...args: never[]) => unknown): void => {
     ipcMain.handle(channel, async (_e, ...args) => {
       try {
@@ -27,8 +34,9 @@ export function registerIpc(saveme: SaveMeApp, win: () => BrowserWindow | undefi
   handle('configureAndConnect', (kind: 'gdrive' | 'onedrive', ids: OAuthIds, remoteFolder?: string) => saveme.configureAndConnect(kind, ids, remoteFolder))
   handle('setRemoteFolder', (folder: string) => saveme.setRemoteFolder(folder))
   handle('openUrl', (url: string) => {
-    if (/^https:\/\/(console\.cloud\.google\.com|entra\.microsoft\.com|portal\.azure\.com)\//.test(url)) void shell.openExternal(url)
+    if (EXTERNAL.test(url)) void shell.openExternal(url)
   })
+  handle('openLicenses', () => shell.openPath(path.join(resources, 'THIRD-PARTY-NOTICES.txt')))
   handle('disconnect', () => saveme.disconnect())
   handle('refreshQuota', () => saveme.refreshQuota())
   handle('openSaveFolder', (id: string) => saveme.openSaveFolder(id))
@@ -44,6 +52,9 @@ export function registerIpc(saveme: SaveMeApp, win: () => BrowserWindow | undefi
     const res = w ? await dialog.showOpenDialog(w, opts) : await dialog.showOpenDialog(opts)
     return res.canceled ? undefined : res.filePaths[0]
   })
+  handle('updateState', () => updates.get())
+  handle('checkForUpdate', () => updates.check())
+  handle('installUpdate', () => updates.install())
 
   saveme.onState((s) => win()?.webContents.send('state', s))
 }

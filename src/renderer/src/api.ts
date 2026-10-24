@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { AppState, GameIndex, ProviderKind, Settings } from '../../shared/types'
+import type { AppState, GameIndex, ProviderKind, Settings, UpdateState } from '../../shared/types'
 
 export interface SaveMeApi {
   state(): Promise<AppState>
@@ -18,14 +18,19 @@ export interface SaveMeApi {
   ): Promise<void>
   setRemoteFolder(folder: string): Promise<void>
   openUrl(url: string): Promise<void>
+  openLicenses(): Promise<void>
   disconnect(): Promise<void>
   refreshQuota(): Promise<void>
   openSaveFolder(id: string): Promise<void>
   addCustomGame(name: string, folder: string): Promise<void>
   updateSettings(patch: Partial<Settings>): Promise<Settings>
   pickFolder(title: string): Promise<string | undefined>
+  updateState(): Promise<UpdateState>
+  checkForUpdate(): Promise<UpdateState>
+  installUpdate(): Promise<void>
   onState(fn: (s: AppState) => void): () => void
   onNavigate(fn: (route: string) => void): () => void
+  onUpdate(fn: (u: UpdateState) => void): () => void
 }
 
 declare global {
@@ -36,6 +41,9 @@ declare global {
 
 export const api = window.saveme
 
+export const SITE = 'https://calinadrian.github.io/saveme/'
+export const REPO = 'https://github.com/calinadrian/saveme'
+
 export function useAppState(): AppState | undefined {
   const [state, setState] = useState<AppState>()
   useEffect(() => {
@@ -43,6 +51,15 @@ export function useAppState(): AppState | undefined {
     return api.onState(setState)
   }, [])
   return state
+}
+
+export function useUpdate(): UpdateState {
+  const [update, setUpdate] = useState<UpdateState>({ current: '', status: 'dev' })
+  useEffect(() => {
+    void api.updateState().then(setUpdate)
+    return api.onUpdate(setUpdate)
+  }, [])
+  return update
 }
 
 export function formatBytes(n?: number): string {
@@ -58,12 +75,17 @@ export function formatBytes(n?: number): string {
   return `${v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`
 }
 
-export function timeAgo(iso?: string): string {
+const relative = new Intl.RelativeTimeFormat('en', { numeric: 'auto' })
+
+export function timeAgo(iso?: string | number): string {
   if (!iso) return 'never'
-  const s = (Date.now() - Date.parse(iso)) / 1000
+  const at = typeof iso === 'number' ? iso : Date.parse(iso)
+  const s = (Date.now() - at) / 1000
   if (s < 60) return 'just now'
-  if (s < 3600) return `${Math.floor(s / 60)} min ago`
-  if (s < 86400) return `${Math.floor(s / 3600)} h ago`
-  if (s < 86400 * 30) return `${Math.floor(s / 86400)} d ago`
-  return new Date(iso).toLocaleDateString()
+  if (s < 3600) return relative.format(-Math.floor(s / 60), 'minute')
+  if (s < 86400) return relative.format(-Math.floor(s / 3600), 'hour')
+  if (s < 86400 * 30) return relative.format(-Math.floor(s / 86400), 'day')
+  return new Date(at).toLocaleDateString()
 }
+
+export const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`

@@ -1,23 +1,67 @@
+import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { app, BrowserWindow, Menu, nativeImage, Notification, Tray } from 'electron'
+import electronUpdater from 'electron-updater'
 import { SaveMeApp } from './app'
 import { registerIpc } from './ipc'
+import { createUpdates, Updater } from './updates'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const resources = app.isPackaged ? path.join(process.resourcesPath, 'app.asar.unpacked', 'resources') : path.join(app.getAppPath(), 'resources')
-const startHidden = process.argv.includes('--hidden')
+const HOUR = 60 * 60_000
 
 let win: BrowserWindow | undefined
 let tray: Tray | undefined
 let saveme: SaveMeApp
 let quitting = false
+let refreshTray: (() => void) | undefined
 
 app.setName('SaveMe')
 app.setAppUserModelId('app.saveme.desktop')
+const primary = app.requestSingleInstanceLock()
 
-if (!app.requestSingleInstanceLock()) {
+/**
+ * Written right before an update installs, read on the next start. An update installed while SaveMe sat
+ * in the tray reopens in the tray too; the installer itself always relaunches with `--updated`.
+ */
+const updateMarker = path.join(app.getPath('userData'), 'update.json')
+let afterUpdate: { from: string; hidden: boolean } | undefined
+try {
+  if (primary) {
+    afterUpdate = JSON.parse(fs.readFileSync(updateMarker, 'utf8'))
+    fs.rmSync(updateMarker)
+  }
+} catch {
+  // no update just happened
+}
+const startHidden = process.argv.includes('--updated') ? !!afterUpdate?.hidden : process.argv.includes('--hidden')
+
+const updates = createUpdates({
+  current: app.getVersion(),
+  // Only installed copies update; electron-updater needs the app-update.yml that the installer adds.
+  updater: app.isPackaged ? (electronUpdater.autoUpdater as unknown as Updater) : null,
+  publish: (state) => {
+    if (win && !win.isDestroyed()) win.webContents.send('update', state)
+    refreshTray?.()
+  },
+  beforeInstall: () => {
+    quitting = true
+  }
+})
+
+function installUpdate(hidden: boolean): void {
+  if (updates.get().status !== 'ready') return
+  try {
+    fs.writeFileSync(updateMarker, JSON.stringify({ from: app.getVersion(), hidden }))
+  } catch {
+    // reopening visibly is fine too
+  }
+  updates.install()
+}
+
+if (!primary) {
   app.quit()
 } else {
   app.on('second-instance', () => showWindow())
@@ -33,14 +77,17 @@ function showWindow(route?: string): void {
 
 function createWindow(): void {
   win = new BrowserWindow({
-    width: 1120,
-    height: 760,
-    minWidth: 820,
-    minHeight: 560,
+    width: 1160,
+    height: 780,
+    minWidth: 860,
+    minHeight: 580,
     show: false,
     title: 'SaveMe',
-    backgroundColor: '#0f1115',
+    backgroundColor: '#0c0e11',
     icon: path.join(resources, 'icon.png'),
+    // Our own title bar (see TitleBar in App.tsx) with the native Windows buttons on top.
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: '#0c0e11', symbolColor: '#a3a9b5', height: 40 },
     autoHideMenuBar: true,
     webPreferences: { preload: path.join(__dirname, '../preload/index.cjs'), sandbox: true, contextIsolation: true }
   })
@@ -67,8 +114,9 @@ function notify(title: string, body: string, gameId?: string): void {
 
 function createTray(): void {
   tray = new Tray(nativeImage.createFromPath(path.join(resources, 'tray.png')))
-  const update = (): void => {
+  refreshTray = (): void => {
     const s = saveme.state()
+    const u = updates.get()
     const busy = s.queue.length ? `Backing up ${s.queue.length} game${s.queue.length > 1 ? 's' : ''}…` : s.provider.connected ? 'All saves backed up' : 'Not connected'
     const pending = s.games.filter((g) => g.status === 'cloud-newer').length
     tray!.setToolTip(`SaveMe: ${busy}`)
@@ -80,23 +128,43 @@ function createTray(): void {
         { label: 'Open SaveMe', click: () => showWindow() },
         { label: 'Back up all now', click: () => saveme.backupAll() },
         { label: 'Scan for games', click: () => void saveme.scan() },
+        ...(u.status === 'ready' ? [{ type: 'separator' as const }, { label: `Restart to update to ${u.version}`, click: () => installUpdate(!win?.isVisible()) }] : []),
         { type: 'separator' },
         { label: 'Quit', click: () => app.quit() }
       ])
     )
   }
-  update()
-  saveme.onState(update)
+  refreshTray()
+  saveme.onState(refreshTray)
   tray.on('click', () => showWindow())
+}
+
+/** A downloaded update installs by itself once SaveMe is only in the tray and has nothing to do. */
+function idle(): boolean {
+  const s = saveme.state()
+  return !win?.isVisible() && !s.queue.length && !s.running.length && !s.scanning
+}
+
+function watchUpdates(): void {
+  if (updates.get().status === 'dev') return
+  const auto = (): boolean => saveme.db.data.settings.autoUpdate
+  setTimeout(() => auto() && updates.check(), 10_000)
+  setInterval(() => auto() && updates.check(), 6 * HOUR).unref()
+  setInterval(() => auto() && idle() && installUpdate(true), 5 * 60_000).unref()
 }
 
 async function start(): Promise<void> {
   saveme = new SaveMeApp(app.getPath('userData'), notify)
   await saveme.init()
-  registerIpc(saveme, () => win)
+  registerIpc(saveme, { win: () => win, updates: { get: updates.get, check: updates.check, install: () => installUpdate(false) }, resources })
   app.setLoginItemSettings({ openAtLogin: saveme.db.data.settings.startAtLogin, args: ['--hidden'] })
   createTray()
   createWindow()
+  if (afterUpdate && afterUpdate.from !== app.getVersion()) {
+    saveme.db.log({ kind: 'info', message: `SaveMe updated to ${app.getVersion()}` })
+    if (startHidden && saveme.db.data.settings.notifications) notify(`SaveMe updated to ${app.getVersion()}`, 'Your backups carry on as before.')
+  }
+  watchUpdates()
   if (!saveme.db.data.lastScanAt) void saveme.scan()
 }
 

@@ -107,7 +107,7 @@ export function Games({ state, navigate, view }: { state: AppState; navigate: Na
             </button>
             {g.status === 'cloud-newer' && g.newerSnapshot && (
               <div className="inline-actions" onClick={(e) => e.stopPropagation()}>
-                <button className="btn small primary" disabled={busy || !!state.operation || state.running.includes(g.id)} onClick={() => run(async () => (await confirmRestore(g, g.newerSnapshot!, state.machine)) && api.restore(g.id, g.newerSnapshot!.id))}>
+                <button className="btn small primary" disabled={busy || !!state.operation || state.running.includes(g.id)} onClick={() => run(async () => { const preview = await confirmRestore(g,g.newerSnapshot!,state.machine); if (preview) await api.restore(g.id,g.newerSnapshot!.id,preview.token) })}>
                   Review cloud save
                 </button>
                 {g.roots.length > 0 && (
@@ -129,15 +129,17 @@ export function Games({ state, navigate, view }: { state: AppState; navigate: Na
 }
 
 /** Shared with GameDetail: restoring replaces the save on this PC, so always ask first. */
-export function confirmRestore(game: Game, snapshot: SnapshotMeta, machine: string): Promise<boolean> {
-  return confirmDialog({
+export async function confirmRestore(game: Game, snapshot: SnapshotMeta, machine: string) {
+  const preview = await api.previewRestore(game.id, snapshot.id)
+  const confirmed = await confirmDialog({
     title: `Restore ${game.name}?`,
     message: (
-      <><dl className="restore-facts"><dt>Selected version</dt><dd>{new Date(snapshot.createdAt).toLocaleString()} · {snapshot.machine}</dd><dt>Destination PC</dt><dd>{machine}</dd><dt>Last confirmed backup on this PC</dt><dd>{game.lastBackupAt ? new Date(game.lastBackupAt).toLocaleString() : 'No confirmed backup yet'}</dd></dl><p>This replaces {game.name}’s current files on this PC. Your current files are preserved before replacement so you can recover them.</p></>
+      <><dl className="restore-facts"><dt>Selected version</dt><dd>{snapshot.label ? `${snapshot.label} · ` : ''}{new Date(snapshot.createdAt).toLocaleString()} · {snapshot.machine}</dd><dt>Destination PC</dt><dd>{machine}</dd><dt>Last confirmed backup on this PC</dt><dd>{game.lastBackupAt ? new Date(game.lastBackupAt).toLocaleString() : 'No confirmed backup yet'}</dd></dl><p>This replaces {game.name}’s backed-up files on this PC. Your current files are preserved before replacement so you can recover them. Extra local files stay in place.</p><div className="restore-comparison">{([['added', 'Files to add'], ['replaced', 'Files to replace'], ['unchanged', 'Files already matching'], ['extra', 'Extra local files kept']] as const).map(([key,label]) => <details key={key}><summary>{label}: {preview[key].length}</summary><ul>{preview[key].slice(0,100).map(file => <li key={file}><code>{file}</code></li>)}</ul>{preview[key].length > 100 && <p className="muted small">Showing the first 100 files.</p>}</details>)}</div></>
     ),
     confirm: 'Restore this version',
     danger: true
   })
+  return confirmed ? preview : undefined
 }
 
 export function confirmKeepLocal(game: Game): Promise<boolean> {

@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { AppState, GameIndex } from '../../../shared/types'
 import type { Navigate } from '../App'
 import { api, formatBytes, plural, timeAgo, winPath } from '../api'
 import { AsyncToggle, Cover, Icon, InlineError, StatusPill, STORE_NAMES, useAction } from '../components'
 import { Empty } from './Dashboard'
 import { confirmKeepLocal, confirmRestore } from './Games'
+import { SnapshotActions } from '../recovery'
 
 const TRIGGERS: Record<string, string> = {
   'game-exit': 'After playing',
@@ -20,6 +21,9 @@ export function GameDetail({ state, id, navigate }: { state: AppState; id: strin
   const [loading, setLoading] = useState(true)
   const [historyError, setHistoryError] = useState<string>()
   const [historyAttempt, setHistoryAttempt] = useState(0)
+  const [naming, setNaming] = useState<{ id: string; value: string }>()
+  const [notice, setNotice] = useState<string>()
+  const returnTo = useRef<string | undefined>(undefined)
   const [run, error, busy] = useAction()
   const running = state.running.includes(id)
 
@@ -37,6 +41,14 @@ export function GameDetail({ state, id, navigate }: { state: AppState; id: strin
     return () => { cancelled = true }
   }, [id, game?.lastSnapshotId, state.provider.connected, state.provider.location, historyAttempt])
 
+  useEffect(() => {
+    if (!loading && !naming && returnTo.current) {
+      const target = document.querySelector<HTMLElement>(`summary[data-snapshot-id="${returnTo.current}"]`) ?? document.querySelector<HTMLElement>('.timeline summary') ?? document.querySelector<HTMLElement>('h1')
+      target?.focus()
+      returnTo.current = undefined
+    }
+  }, [loading,naming])
+
   if (!game) {
     return (
       <div className="page">
@@ -48,13 +60,24 @@ export function GameDetail({ state, id, navigate }: { state: AppState; id: strin
     )
   }
 
-  const snapshots = [...(index?.snapshots ?? [])].sort((a, b) => (b.createdAt > a.createdAt ? 1 : -1))
+  const snapshots = [...(index?.snapshots ?? [])].reverse()
   const cloudBytes = snapshots.reduce((n, s) => n + s.zipBytes, 0)
   const restore = (snapshotId: string): void =>
     void run(async () => {
       const snapshot = index?.snapshots.find(s => s.id === snapshotId) ?? game.newerSnapshot
-      if (snapshot?.id === snapshotId && await confirmRestore(game, snapshot, state.machine)) await api.restore(id, snapshotId)
+      if (snapshot?.id === snapshotId) { const preview = await confirmRestore(game,snapshot,state.machine); if (preview) await api.restore(id,snapshotId,preview.token) }
     })
+  const historyAction = (snapshotId: string, action: 'verify' | 'pin' | 'unpin'): void => {
+    setNotice(undefined)
+    void run(async () => {
+      if (action === 'verify') {
+        const result = await api.verifySnapshot(id,snapshotId)
+        setNotice(result.status === 'verified' ? 'Backup verified. All files match their recorded hashes.' : result.status === 'corrupt' ? 'Backup verification failed. This archive is damaged or incomplete; choose another version.' : 'Could not verify the backup. Check storage availability and retry.')
+      } else if (action === 'pin') { await api.pinSnapshot(id,snapshotId); setNotice('Version pinned. A protected copy stays until you unpin it.') }
+      else { await api.unpinSnapshot(id,snapshotId); setNotice('Version unpinned. Normal retention applies.') }
+      setHistoryAttempt(n => n + 1)
+    })
+  }
   return (
     <div className="page">
       <button className="link back" onClick={() => navigate('/games')}>
@@ -86,10 +109,11 @@ export function GameDetail({ state, id, navigate }: { state: AppState; id: strin
         </div>
       </header>
       <InlineError error={error} />
+      {notice && <p className="history-feedback" role="status">{notice}</p>}
       {(!game.roots.length || !game.tracked || !state.provider.connected || !!state.operation) && <p className="muted small action-reason">{!state.provider.connected ? 'Connect storage in Settings to back up or restore.' : state.operation ? 'Wait for the current operation to finish.' : !game.roots.length ? 'Save files have not been found on this PC. You can restore a version if its destinations are available.' : 'Turn on automatic backup to enable Back up now.'}</p>}
       {game.status === 'error' && game.error && (
         <div className="alert err" role="alert">
-          <Icon name="alert" /> <span className="alert-text">The last backup failed: {game.error}</span>
+          <span className="alert-text">The last backup failed: {game.error}</span>
         </div>
       )}
       {running && (
@@ -99,7 +123,6 @@ export function GameDetail({ state, id, navigate }: { state: AppState; id: strin
       )}
       {game.status === 'cloud-newer' && game.newerSnapshot && (
         <div className="alert warn">
-          <Icon name="pc" />
           <span className="alert-text">
             <strong>{game.newerSnapshot.machine}</strong> has a newer save from {timeAgo(game.newerSnapshot.createdAt)}.
           </span>
@@ -121,6 +144,10 @@ export function GameDetail({ state, id, navigate }: { state: AppState; id: strin
           <h2>Version history</h2>
           <span className="muted small">Restoring backs up your current save first.</span>
         </div>
+        <p className="muted small">History format 2 requires updated SaveMe on every PC sharing this storage. Pinned versions and unresolved branches can exceed your history limit.</p>
+        {index?.incomplete && <p className="alert warn">Some backup files have not arrived yet. History cleanup waits for storage to finish syncing.</p>}
+        {(index?.heads?.length ?? 0) > 1 && <p className="alert warn">Multiple PCs have separate save progress. Review the versions before choosing which save to continue.</p>}
+        {naming && <form className="history-name-editor" onSubmit={event => { event.preventDefault(); void run(async () => { await api.renameSnapshot(id,naming.id,naming.value); setNaming(undefined); setHistoryAttempt(n => n + 1) }) }}><label htmlFor="version-name">Version name</label><input id="version-name" autoFocus maxLength={100} disabled={busy} value={naming.value} onChange={event => setNaming({ ...naming,value: event.target.value })} placeholder="Before the final boss" /><button type="button" className="btn ghost" disabled={busy} onClick={() => setNaming(undefined)}>Cancel</button><button className="btn primary" disabled={busy}>Save name</button></form>}
         {loading && <p className="muted pad" role="status">Loading versions…</p>}
         {historyError && <div className="alert err" role="alert"><span className="alert-text">Could not load version history: {historyError}</span><button className="btn small" disabled={loading} onClick={() => setHistoryAttempt(n => n + 1)}>Retry</button></div>}
         {!loading && !historyError && !snapshots.length && (
@@ -136,10 +163,11 @@ export function GameDetail({ state, id, navigate }: { state: AppState; id: strin
               <li key={s.id} className={current ? 'current' : ''}>
                 <span className="tl-dot" />
                 <div className="tl-main">
-                  <strong>{timeAgo(s.createdAt)}</strong>
+                  <strong>{s.label || timeAgo(s.createdAt)}{s.pinned && <span className="snapshot-pin">Pinned</span>}</strong>
                   <span className="muted">
                     {when.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })} {when.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
                   </span>
+                  {s.verification && <span className={s.verification.status === 'corrupt' ? 'err-text' : 'muted'} title={new Date(s.verification.checkedAt).toLocaleString()}>{s.verification.status === 'verified' ? 'Verified' : s.verification.status === 'corrupt' ? 'Verification failed' : 'Verification unavailable'}</span>}
                 </div>
                 <span className="tl-tag">
                   <Icon name="pc" size={13} /> {s.machine === state.machine ? 'This PC' : s.machine}
@@ -156,6 +184,7 @@ export function GameDetail({ state, id, navigate }: { state: AppState; id: strin
                       Restore
                     </button>
                   )}
+                  <SnapshotActions snapshot={s} disabled={busy || !!state.operation || !state.provider.connected} onAction={action => { returnTo.current = s.id; historyAction(s.id,action) }} onRename={() => { returnTo.current = s.id; setNaming({ id: s.id,value: s.label ?? '' }) }} />
                 </span>
               </li>
             )

@@ -1,9 +1,10 @@
 import { ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { cleanFolder, locationLabel, remoteFolderFor, REMOTE_ROOT_LABEL } from '../../../shared/types'
-import type { AppState, ProviderKind, RetentionPolicy, UpdateState } from '../../../shared/types'
+import type { Appearance, AppState, ProviderKind, RetentionPolicy, UpdateState } from '../../../shared/types'
 import { api, formatBytes, refreshUsageWithTimeout, REPO, SITE, timeAgo } from '../api'
 import { ActionFeedback, BrandMark, confirmDialog, Icon, IconName, InlineError, PROVIDER_NAMES, PROVIDER_PLACE, ProviderIcon, Spinner, Toggle, useAction } from '../components'
 import { ProviderPicker } from './Onboarding'
+import { DiagnosticExport } from '../recovery'
 
 /** Where people take back SaveMe's access to their account. */
 const REVOKE: Partial<Record<ProviderKind, string>> = {
@@ -96,6 +97,9 @@ export function Settings({ state, update, onOpenUpdate }: { state: AppState; upd
       </Section>}
 
       {section === 'behavior' && <Section icon="settings" title="General" sub="How SaveMe works in the background.">
+        <Setting title="Appearance" sub="Choose a theme, or follow your Windows appearance.">
+          <AppearanceSetting value={s.appearance ?? 'dark'} />
+        </Setting>
         <Setting title="Start with Windows" sub="Runs quietly in the tray so every play session is backed up.">
           <SettingSwitch setting="startAtLogin" value={s.startAtLogin} label="Start with Windows" />
         </Setting>
@@ -142,7 +146,9 @@ export function Settings({ state, update, onOpenUpdate }: { state: AppState; upd
         </div>
       </Section>}
 
-      {section === 'about' && <About update={update} onOpenUpdate={onOpenUpdate} />}
+      {section === 'about' && <Section icon="info" title="About SaveMe" sub="Version, updates and legal information.">
+        <About update={update} onOpenUpdate={onOpenUpdate} />
+      </Section>}
         </div>
       </div>
     </div>
@@ -173,6 +179,17 @@ function Setting({ title, sub, children }: { title: string; sub: string; childre
       {children}
     </div>
   )
+}
+
+function AppearanceSetting({ value }: { value: Appearance }) {
+  const [run, error, busy, saved] = useAction()
+  return <div className="setting-control">
+    <select aria-label="Appearance" value={value} disabled={busy} onChange={event => {
+      const appearance = event.currentTarget.value as Appearance
+      void run(() => api.updateSettings({ appearance }))
+    }}><option value="dark">Dark</option><option value="light">Light</option><option value="system">System</option></select>
+    <ActionFeedback busy={busy} saved={saved} error={error} />
+  </div>
 }
 
 function SettingSwitch({ setting, value, label }: { setting: 'startAtLogin' | 'minimizeToTray' | 'notifications' | 'autoUpdate'; value: boolean; label: string }) {
@@ -214,7 +231,7 @@ function About({ update, onOpenUpdate }: { update: UpdateState; onOpenUpdate: ()
     { label: 'Report a problem', icon: 'alert', open: () => api.openUrl(REPO + '/issues') }
   ]
   return (
-    <section className="about">
+    <div className="about">
       <div className="about-head">
         <BrandMark size={40} tile />
         <div className="about-title">
@@ -241,11 +258,12 @@ function About({ update, onOpenUpdate }: { update: UpdateState; onOpenUpdate: ()
           </button>
         ))}
       </div>
+      <DiagnosticExport />
       <p className="legal muted">
         © 2026 calinadrian. Free software under the MIT License, provided as is, without warranty. Save locations come from the Ludusavi manifest (MIT), compiled from PCGamingWiki. SaveMe isn't
         affiliated with or endorsed by Valve, Epic Games, GOG, Google or Microsoft; game names, artwork and the names of these services are trademarks of their owners.
       </p>
-    </section>
+    </div>
   )
 }
 
@@ -361,7 +379,7 @@ function HistorySettings({ state }: { state: AppState }) {
         <ActionFeedback busy={busy} saved={saved} error={validation || error} errorId={`${field}-error`} />
       </form>
       <div className="backup-usage"><div><strong>Space used by backups</strong><span className="muted" role="status">{checkingUsage ? checkingLabel : !state.provider.connected ? 'Connect storage to see usage.' : usageError ? 'Storage check timed out or failed. Try refreshing again.' : usage?.status === 'ready' ? formatBytes(usage.bytes) : usage?.status === 'loading' ? checkingLabel : 'Storage usage unavailable. Try refreshing again.'}</span></div><button className="btn" disabled={checkingUsage || !state.provider.connected} onClick={() => checkUsage(refreshUsageWithTimeout)}>Refresh usage</button></div>
-      <p className="muted small">The limit is per game, not a fixed storage quota. Larger saves use more space. Restore safety copies may temporarily exceed the limit.</p>
+      <p className="muted small">The limit is per game, not a fixed storage quota. Larger saves use more space. Pinned versions stay until unpinned; unresolved branches and restore safety copies can also exceed the limit.</p>
     </div>
   )
 }

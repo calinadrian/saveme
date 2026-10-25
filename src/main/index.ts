@@ -9,6 +9,8 @@ import { createUpdates, Updater } from './updates'
 import { APP_ID, DEV_APP_ID, repairSaveMeShortcuts, shellIconPath } from './identity'
 import { installMinimizeBehavior, restoreWindow } from './window'
 import { protection } from '../shared/protection'
+import { createAppearance } from './appearance'
+import { WINDOW_COLORS } from '../shared/appearance'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -19,6 +21,7 @@ const HOUR = 60 * 60_000
 let win: BrowserWindow | undefined
 let tray: Tray | undefined
 let saveme: SaveMeApp
+let appearance: ReturnType<typeof createAppearance>
 let quitting = false
 let refreshTray: (() => void) | undefined
 
@@ -90,11 +93,11 @@ function createWindow(): void {
     minHeight: 580,
     show: false,
     title: 'SaveMe',
-    backgroundColor: '#0c0e11',
+    backgroundColor: WINDOW_COLORS[appearance.current()].color,
     icon: appIcon,
     // Our own title bar (see TitleBar in App.tsx) with the native Windows buttons on top.
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#0c0e11', symbolColor: '#a3a9b5', height: 40 },
+    titleBarOverlay: WINDOW_COLORS[appearance.current()],
     autoHideMenuBar: true,
     webPreferences: { preload: path.join(__dirname, '../preload/index.cjs'), sandbox: true, contextIsolation: true }
   })
@@ -185,7 +188,8 @@ async function start(): Promise<void> {
   ]))
   saveme = new SaveMeApp(app.getPath('userData'), notify)
   await saveme.init()
-  registerIpc(saveme, { win: () => win, updates: { get: updates.get, check: updates.check, install: () => installUpdate(false) }, resources })
+  appearance = createAppearance(() => saveme.db.data.settings.appearance, () => win)
+  registerIpc(saveme, { win: () => win, updates: { get: updates.get, check: updates.check, install: () => installUpdate(false) }, resources, appearanceChanged: appearance.apply })
   // A development run would register electron.exe without the app path, which can't start SaveMe.
   if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: saveme.db.data.settings.startAtLogin, args: ['--hidden'] })
   createTray()

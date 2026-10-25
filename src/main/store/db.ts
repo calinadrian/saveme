@@ -2,7 +2,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import os from 'node:os'
-import { ActivityItem, DEFAULT_RETENTION, LEGACY_RETENTION, Game, Settings } from '../../shared/types'
+import { ActivityItem, DEFAULT_RETENTION, LEGACY_RETENTION, Game, Settings, VerificationResult } from '../../shared/types'
+import { validateAppearance } from '../../shared/appearance'
 
 export interface DbData {
   machineId: string
@@ -14,6 +15,7 @@ export interface DbData {
   /** Games waiting to be backed up (survives restarts and offline periods) */
   queue: { gameId: string; trigger: string }[]
   maintenance: Record<string, string[]>
+  verifications?: Record<string, VerificationResult>
   lastScanAt?: string
 }
 
@@ -31,6 +33,7 @@ export class Db {
   }
 
   get recoveryDirectory(): string { return path.join(path.dirname(this.file), 'restore-recovery') }
+  get stagingDirectory(): string { return path.join(path.dirname(this.file), 'operations') }
 
   get recoveryWarning(): string | undefined { return this.data.activity.find(a => a.message.startsWith('Local settings recovered'))?.message }
 
@@ -38,6 +41,7 @@ export class Db {
     const fresh: DbData = {
       machineId: crypto.randomUUID(),
       settings: {
+        appearance: 'dark',
         startAtLogin: true,
         minimizeToTray: true,
         notifications: true,
@@ -68,9 +72,15 @@ export class Db {
           game.roots.some(r => !r || typeof r.template !== 'string' || typeof r.resolved !== 'string') ||
           typeof game.tracked !== 'boolean' || !['synced', 'pending', 'backing-up', 'cloud-newer', 'error', 'never'].includes(game.status) ||
           !Number.isFinite(game.sizeBytes) || game.sizeBytes < 0 || !Number.isInteger(game.fileCount) || game.fileCount < 0
+          || (game.resolvedHeads !== undefined && (!Array.isArray(game.resolvedHeads) || game.resolvedHeads.some(id => typeof id !== 'string' || !/^[\w-]{1,240}$/.test(id))))
+          || (game.retryAt !== undefined && !Number.isFinite(game.retryAt))
         ) throw new Error('Invalid saved game')
       }
+      if (raw.verifications !== undefined && (!record(raw.verifications) || Object.entries(raw.verifications).some(([key,v]) =>
+        !/^[a-f0-9]{64}$/.test(key) || !v || !['verified','corrupt','unavailable'].includes(v.status) || !Number.isFinite(Date.parse(v.checkedAt))
+      ))) throw new Error('Invalid verification history')
       const s = raw.settings
+      if (s?.appearance !== undefined) validateAppearance(s.appearance)
       if (raw.maintenance !== undefined && (!record(raw.maintenance) || Object.entries(raw.maintenance).some(([id, ids]) =>
         !/^[\w-]+$/.test(id) || !Array.isArray(ids) || ids.some(s => typeof s !== 'string' || !/^[\w-]+$/.test(s))
       ))) throw new Error('Invalid pending history maintenance')

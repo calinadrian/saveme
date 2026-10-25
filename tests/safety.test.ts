@@ -53,7 +53,7 @@ describe('snapshot integrity', () => {
   it('rejects an incomplete capture rather than skipping a missing or unreadable file', async () => {
     const p = pc(); p.write('original')
     await expect(localState([p.save, p.save + '.missing'], new Portable(p.folders))).rejects.toThrow()
-    const read = vi.spyOn(fs.promises, 'readFile').mockRejectedValueOnce(Object.assign(new Error('locked'), { code: 'EACCES' }))
+    const read = vi.spyOn(fs, 'createReadStream').mockImplementationOnce(() => { throw Object.assign(new Error('locked'), { code: 'EACCES' }) })
     await expect(p.engine.backup(p.game, 'manual')).rejects.toThrow('locked')
     expect(read).toHaveBeenCalled()
     expect(p.game.lastSnapshotId).toBeUndefined()
@@ -97,12 +97,12 @@ describe('history safety', () => {
     expect(history.snapshots.some(s => s.trigger === 'pre-restore')).toBe(true)
   })
 
-  it('preserves old archives and metadata if the new index cannot commit', async () => {
+  it('preserves old archives and history if the new snapshot record cannot commit', async () => {
     const p = pc(); p.write('old')
     const old = (await p.engine.backup(p.game, 'manual'))!
     p.db.data.settings.retention = { keepLast: 1, keepDaily: 0, keepWeekly: 0 }
     const put = p.provider.put.bind(p.provider)
-    vi.spyOn(p.provider, 'put').mockImplementation(async (key, data) => { if (key.endsWith('index.json')) throw new Error('index failed'); await put(key, data) })
+    vi.spyOn(p.provider, 'put').mockImplementation(async (key, data) => { if (key.includes('/_v2/') && JSON.parse(data.toString()).kind === 'snapshot') throw new Error('index failed'); await put(key, data) })
     const remove = vi.spyOn(p.provider, 'remove')
     p.write('new')
     await expect(p.engine.backup(p.game, 'manual')).rejects.toThrow('index failed')
@@ -131,12 +131,12 @@ describe('history safety', () => {
     expect(fs.readFileSync(p.save, 'utf8')).toBe('new')
   })
 
-  it('never deletes archives when catalog publication fails, then retries discovery', async () => {
+  it('never deletes archives before pruning commits, then retries cleanup', async () => {
     const p = pc(); p.write('old')
     const old = (await p.engine.backup(p.game, 'manual'))!
     p.db.data.settings.retention = { keepLast: 1, keepDaily: 0, keepWeekly: 0 }
     const put = p.provider.put.bind(p.provider)
-    const failing = vi.spyOn(p.provider, 'put').mockImplementation(async (key, data) => { if (key === 'catalog.json') throw new Error('catalog failed'); await put(key, data) })
+    const failing = vi.spyOn(p.provider, 'put').mockImplementation(async (key, data) => { if (key.includes('/_v2/') && JSON.parse(data.toString()).kind === 'prune') throw new Error('prune failed'); await put(key, data) })
     const remove = vi.spyOn(p.provider, 'remove')
     p.write('new')
     const latest = (await p.engine.backup(p.game, 'manual'))!
@@ -145,7 +145,7 @@ describe('history safety', () => {
     expect(p.game.lastSnapshotId).toBe(latest.id)
     failing.mockRestore()
     await p.engine.kick()
-    expect(JSON.parse((await p.provider.get('catalog.json'))!.toString()).games[0].lastSnapshotId).toBe(latest.id)
+    expect((await p.engine.index('game'))!.snapshots.map(s => s.id)).toEqual([latest.id])
     expect(p.db.data.maintenance).toEqual({})
   })
 })
@@ -287,8 +287,8 @@ describe('coordinated operations', () => {
 
   it('keeps a transient storage failure queued and retries on the timer', async () => {
     const p = pc(); p.write('save')
-    vi.useFakeTimers()
-    vi.spyOn(p.provider, 'put').mockRejectedValueOnce(new TypeError('offline'))
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    vi.spyOn(p.provider, 'putFile').mockRejectedValueOnce(new TypeError('offline'))
     p.db.data.queue.push({ gameId: 'game', trigger: 'manual' })
     await p.engine.kick()
     expect(p.engine.queue).toEqual(['game'])

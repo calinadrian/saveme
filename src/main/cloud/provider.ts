@@ -3,6 +3,13 @@ import { ProviderKind, Quota } from '../../shared/types'
 export interface RemoteEntry {
   name: string
   size: number
+  ref?: string
+  directory?: boolean
+}
+
+export interface TransferOptions {
+  signal?: AbortSignal
+  progress?: (completed: number, total: number) => void
 }
 
 /**
@@ -22,6 +29,9 @@ export interface StorageProvider {
   list(dir: string, signal?: AbortSignal): Promise<RemoteEntry[]>
   remove(path: string): Promise<void>
   quota(): Promise<Quota>
+  /** Archives use files, never whole-archive buffers. Returned references are stable object IDs. */
+  putFile(path: string, file: string, options?: TransferOptions): Promise<string>
+  getFile(ref: string, file: string, options?: TransferOptions): Promise<boolean>
 }
 
 export interface TokenStore {

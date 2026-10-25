@@ -1,6 +1,7 @@
 import { Quota } from '../../shared/types'
 import { OAuthSession } from './oauth'
-import { checkOk, RemoteEntry, StorageProvider, TokenStore } from './provider'
+import { checkOk, HttpError, RemoteEntry, StorageProvider, TokenStore, TransferOptions } from './provider'
+import { downloadFile, resumableFile, transferSignal } from './transfers'
 
 const API = 'https://www.googleapis.com/drive/v3'
 const UPLOAD = 'https://www.googleapis.com/upload/drive/v3'
@@ -61,6 +62,7 @@ export class GoogleDriveProvider implements StorageProvider {
   }
 
   private async fetch(url: string, init: RequestInit = {}, what = 'Google Drive'): Promise<Response> {
+    init.signal ??= AbortSignal.timeout(30_000)
     init.signal?.throwIfAborted()
     const headers = new Headers(init.headers)
     headers.set('Authorization', `Bearer ${await this.session.token()}`)
@@ -74,6 +76,29 @@ export class GoogleDriveProvider implements StorageProvider {
     const res = await this.fetch(`${API}/files?` + new URLSearchParams({ q: query.join(' and '), fields: 'files(id)', pageSize: '1', spaces: 'drive' }), { signal })
     const body = (await res.json()) as { files: { id: string }[] }
     return body.files[0]?.id
+  }
+
+  private async children(parent: string, name?: string, signal?: AbortSignal): Promise<{ id: string; name: string; size?: string; mimeType: string }[]> {
+    const out: { id: string; name: string; size?: string; mimeType: string }[] = []
+    let token: string | undefined
+    do {
+      const params = new URLSearchParams({ q: `'${q(parent)}' in parents and trashed=false${name ? ` and name='${q(name)}'` : ''}`, fields: 'nextPageToken,files(id,name,size,mimeType)', pageSize: '1000' })
+      if (token) params.set('pageToken', token)
+      const body = await (await this.fetch(`${API}/files?${params}`, { signal })).json() as { files: typeof out; nextPageToken?: string }
+      out.push(...body.files); token = body.nextPageToken
+    } while (token)
+    return out
+  }
+
+  private async folderIds(dir: string, signal?: AbortSignal): Promise<string[]> {
+    if (dir.startsWith('@')) return [dir.slice(1)]
+    let ids = ['root']
+    for (const part of [...this.base.split('/'), ...dir.split('/')].filter(Boolean)) {
+      const next: string[] = []
+      for (const id of ids) next.push(...(await this.children(id, part, signal)).filter(f => f.mimeType === FOLDER).map(f => f.id))
+      ids = [...new Set(next)]
+    }
+    return ids
   }
 
   private async createFolder(parentId: string, name: string): Promise<string> {
@@ -113,9 +138,13 @@ export class GoogleDriveProvider implements StorageProvider {
   }
 
   private async fileId(path: string): Promise<string | undefined> {
+    if (path.startsWith('@')) return path.slice(1)
     const [dir, name] = this.split(path)
-    const parent = await this.folderId(dir, false)
-    return parent ? this.findChild(parent, name) : undefined
+    for (const parent of await this.folderIds(dir)) {
+      const found = (await this.children(parent, name)).sort((a, b) => a.id.localeCompare(b.id))[0]
+      if (found) return found.id
+    }
+    return undefined
   }
 
   async put(path: string, data: Buffer): Promise<void> {
@@ -140,28 +169,59 @@ export class GoogleDriveProvider implements StorageProvider {
   async get(path: string): Promise<Buffer | undefined> {
     const id = await this.fileId(path)
     if (!id) return undefined
-    const res = await this.fetch(`${API}/files/${id}?alt=media`, {}, 'Download')
-    return Buffer.from(await res.arrayBuffer())
+    try {
+      const res = await this.fetch(`${API}/files/${encodeURIComponent(id)}?alt=media`, {}, 'Download')
+      return Buffer.from(await res.arrayBuffer())
+    } catch (e) { if (e instanceof HttpError && e.status === 404) return undefined; throw e }
   }
 
   async list(dir: string, signal?: AbortSignal): Promise<RemoteEntry[]> {
-    const parent = await this.folderId(dir, false, signal)
-    if (!parent) return []
     const out: RemoteEntry[] = []
-    let pageToken: string | undefined
-    do {
-      const params = new URLSearchParams({ q: `'${parent}' in parents and trashed=false`, fields: 'nextPageToken,files(name,size)', pageSize: '1000' })
-      if (pageToken) params.set('pageToken', pageToken)
-      const body = (await (await this.fetch(`${API}/files?${params}`, { signal })).json()) as { nextPageToken?: string; files: { name: string; size?: string }[] }
-      out.push(...body.files.map((f) => ({ name: f.name, size: Number(f.size ?? 0) })))
-      pageToken = body.nextPageToken
-    } while (pageToken)
+    for (const parent of await this.folderIds(dir, signal)) out.push(...(await this.children(parent, undefined, signal)).map(f => ({ name: f.name, size: Number(f.size ?? 0), ref: `@${f.id}`, directory: f.mimeType === FOLDER })))
     return out
+  }
+
+  async putFile(path: string, file: string, options: TransferOptions = {}): Promise<string> {
+    const [dir, name] = this.split(path)
+    const parent = (await this.folderId(dir, true))!
+    const decode = async (response: Response, size: number): Promise<{ offset: number; ref?: string }> => {
+      if (response.status === 308) return { offset: Number(response.headers.get('range')?.match(/-(\d+)$/)?.[1] ?? -1) + 1 }
+      await checkOk(response, 'Upload')
+      const body = await response.json() as { id: string }
+      return { offset: size, ref: `@${body.id}` }
+    }
+    const ref = await resumableFile(file, 8 * 1024 * 1024, options, {
+      start: async size => {
+        const response = await this.fetch(`${UPLOAD}/files?uploadType=resumable&fields=id`, {
+          method: 'POST', signal: transferSignal(options), headers: { 'Content-Type': 'application/json', 'X-Upload-Content-Length': String(size) }, body: JSON.stringify({ name, parents: [parent] })
+        })
+        const url = response.headers.get('location')
+        if (!url) throw new Error('Storage did not return an upload session')
+        return url
+      },
+      send: async (url, bytes, start, size) => {
+        const headers = { Authorization: `Bearer ${await this.session.token()}`, 'Content-Range': `bytes ${start}-${start + bytes.length - 1}/${size}` }
+        return decode(await fetch(url, { method: 'PUT', headers, body: new Uint8Array(bytes), signal: transferSignal(options) }), size)
+      },
+      status: async (url, size) => decode(await fetch(url, { method: 'PUT', headers: { Authorization: `Bearer ${await this.session.token()}`, 'Content-Range': `bytes */${size}`, 'Content-Length': '0' }, signal: transferSignal(options) }), size)
+    })
+    if (!ref) throw new Error('Storage did not confirm the uploaded file')
+    return ref
+  }
+
+  async getFile(ref: string, file: string, options: TransferOptions = {}): Promise<boolean> {
+    const id = await this.fileId(ref)
+    if (!id) return false
+    try { return await downloadFile(signal => this.fetch(`${API}/files/${encodeURIComponent(id)}?alt=media`, { signal }), file, options) }
+    catch (e) { if (e instanceof HttpError && e.status === 404) return false; throw e }
   }
 
   async remove(path: string): Promise<void> {
     const id = await this.fileId(path)
-    if (id) await this.fetch(`${API}/files/${id}`, { method: 'DELETE' }, 'Delete')
+    if (id) {
+      try { await this.fetch(`${API}/files/${encodeURIComponent(id)}`, { method: 'DELETE' }, 'Delete') }
+      catch (e) { if (!(e instanceof HttpError) || e.status !== 404) throw e }
+    }
   }
 
   async quota(): Promise<Quota> {

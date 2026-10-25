@@ -14,10 +14,10 @@ export async function measureBackupUsage(provider: StorageProvider, signal: Abor
     while (next < roots.length) {
       signal.throwIfAborted()
       const entry = roots[next++]
-      const files = await provider.list(entry.name, signal)
+      const files = await provider.list(entry.ref ?? entry.name, signal)
       signal.throwIfAborted()
       for (const file of files) {
-        if (!/\.zip(?:\.part)?$/.test(file.name)) continue
+        if (!/\.zip(?:\.[\w-]+)?(?:\.part)?$/.test(file.name)) continue
         if (!Number.isSafeInteger(file.size) || file.size < 0 || !Number.isSafeInteger(bytes + file.size)) throw new Error('Storage returned an invalid backup size')
         bytes += file.size
       }

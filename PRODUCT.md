@@ -22,6 +22,8 @@ The name is SaveMe. The user asked for a compact, minimal dark UI, a slimmer sid
 
 The user chose Steam blue (#1a9fff from their supplied screenshot) for the icon and UI accents.
 
+Appearance supports Light, Dark, and System under Settings → General. Dark is the default. Preserve the compact layout in both themes and use neutral surfaces with restrained blue actions and labeled status feedback.
+
 ## Capabilities and Constraints
 
 Keep real game covers and offline artwork caching. Preserve user data and settings across upgrades. Do not publish releases or push Git changes without the user's request.

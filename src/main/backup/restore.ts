@@ -2,6 +2,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { RestoreFile } from './snapshot'
+import { StagedRestoreFile, freeSpace } from './streaming'
 
 interface Journal {
   entries: { target: string; original?: string; staged: string }[]
@@ -24,12 +25,18 @@ async function checkTarget(target: string): Promise<void> {
   }
 }
 
-async function replace(target: string, data: Buffer): Promise<void> {
+async function durableCopy(source: string, target: string): Promise<void> {
+  await fs.copyFile(source, target)
+  const handle = await fs.open(target, 'r+')
+  try { await handle.sync() } finally { await handle.close() }
+}
+
+async function replace(target: string, source: string): Promise<void> {
   await checkTarget(target)
   await fs.mkdir(path.dirname(target), { recursive: true })
   const temporary = `${target}.saveme-${crypto.randomUUID()}.tmp`
   try {
-    await fs.writeFile(temporary, data, { flag: 'wx', flush: true })
+    await durableCopy(source, temporary)
     await checkTarget(target)
     await fs.rename(temporary, target)
   } finally { await fs.rm(temporary, { force: true }) }
@@ -38,35 +45,43 @@ async function replace(target: string, data: Buffer): Promise<void> {
 async function rollback(directory: string, journal: Journal): Promise<void> {
   for (const entry of [...journal.entries].reverse()) {
     await checkTarget(entry.target)
-    if (entry.original) await replace(entry.target, await fs.readFile(path.join(directory, entry.original)))
+    if (entry.original) await replace(entry.target, path.join(directory, entry.original))
     else await fs.rm(entry.target, { force: true })
   }
 }
 
 /** Journals are written before the first replacement and retained if recovery cannot complete. */
-export async function applyRestore(files: RestoreFile[], recoveryRoot: string, canWrite: () => void = () => {}): Promise<string[]> {
+export async function applyRestore(files: (RestoreFile | StagedRestoreFile)[], recoveryRoot: string, canWrite: () => void = () => {}, progress: (completed: number, total: number) => void = () => {}): Promise<string[]> {
   await fs.mkdir(recoveryRoot, { recursive: true })
   const directory = await fs.mkdtemp(path.join(recoveryRoot, 'restore-'))
   const journal: Journal = { entries: [] }
   let prepared = false
   try {
+    let needed = 0
+    for (const file of files) {
+      needed += 'staged' in file ? (await fs.stat(file.staged)).size : file.data.length
+      try { needed += (await fs.stat(file.target)).size } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e }
+    }
+    await freeSpace(directory, needed)
     for (const [i, file] of files.entries()) {
       await checkTarget(file.target)
       let original: string | undefined
       try {
-        const data = await fs.readFile(file.target)
-        original = `${i}.original`
-        await fs.writeFile(path.join(directory, original), data, { flush: true })
+        const preserved = `${i}.original`
+        await durableCopy(file.target, path.join(directory, preserved))
+        original = preserved
       } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e }
       const staged = `${i}.staged`
-      await fs.writeFile(path.join(directory, staged), file.data, { flush: true })
+      if ('staged' in file) await durableCopy(file.staged, path.join(directory, staged))
+      else await fs.writeFile(path.join(directory, staged), file.data, { flush: true })
       journal.entries.push({ target: file.target, original, staged })
     }
     await fs.writeFile(path.join(directory, 'journal.json'), JSON.stringify(journal), { flush: true })
     prepared = true
-    for (const entry of journal.entries) {
+    for (const [i, entry] of journal.entries.entries()) {
       canWrite()
-      await replace(entry.target, await fs.readFile(path.join(directory, entry.staged)))
+      await replace(entry.target, path.join(directory, entry.staged))
+      progress(i + 1, journal.entries.length)
     }
     // An immutable completion marker avoids a torn rewrite of the recovery journal.
     await fs.writeFile(path.join(directory, 'complete'), '', { flush: true })

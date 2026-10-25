@@ -20,12 +20,12 @@ export function ProviderPicker({ state, onCancel }: { state: AppState; onCancel?
         <legend className="sr-only">Where backups go</legend>
         {PROVIDERS.map((p) => (
           <label key={p.kind} className={`provider ${p.kind}${selected === p.kind ? ' selected' : ''}`}>
-            <input type="radio" name={group} value={p.kind} checked={selected === p.kind} onChange={() => setSelected(p.kind)} aria-label={p.name} />
             <span className="provider-top">
               <span className="provider-logo">
                 <Icon name={p.icon} size={20} />
               </span>
               <span className="provider-free">{p.free}</span>
+              <input type="radio" name={group} value={p.kind} checked={selected === p.kind} onChange={() => setSelected(p.kind)} aria-label={p.name} />
             </span>
             <strong>{p.name}</strong>
             <span className="muted">{state.provider.configured[p.kind] ? p.note : `Requires your own ${p.kind === 'gdrive' ? 'Google' : 'Microsoft'} app registration, then sign-in.`}</span>

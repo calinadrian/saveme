@@ -5,6 +5,7 @@ import { AppState, cleanFolder, Game, locationLabel, ProviderKind, Quota, remote
 import { BackupEngine } from './backup/engine'
 import { recoverRestores } from './backup/restore'
 import { validateRetention } from '../shared/settings'
+import { validateAppearance } from '../shared/appearance'
 import { watchDirs } from './backup/snapshot'
 import { LocalFolderProvider } from './cloud/local'
 import { GoogleDriveProvider } from './cloud/gdrive'
@@ -51,6 +52,11 @@ export class SaveMeApp {
 
   async init(): Promise<void> {
     const recovered = await recoverRestores(this.db.recoveryDirectory)
+    // Operation staging is disposable; restore-recovery has its own journal lifecycle.
+    await fs.promises.mkdir(this.db.stagingDirectory, { recursive: true })
+    for (const entry of await fs.promises.readdir(this.db.stagingDirectory, { withFileTypes: true })) {
+      if (entry.isDirectory() && /^job-[\w-]+$/.test(entry.name)) await fs.promises.rm(path.join(this.db.stagingDirectory, entry.name), { recursive: true, force: true })
+    }
     if (recovered) this.db.log({ kind: 'error', message: `Recovered ${recovered} interrupted restore(s). Previous local saves were put back before automatic backups resumed.` })
     this.folders = await getKnownFolders()
     this.provider = this.makeProvider(this.db.data.settings.provider)
@@ -240,7 +246,7 @@ export class SaveMeApp {
 
   /** A different storage or folder has a different history: compare every game afresh and back up. */
   private resetHistory(): void {
-    for (const g of Object.values(this.db.data.games)) Object.assign(g, { lastSnapshotId: undefined, lastHashes: undefined, lastBackupAt: undefined, newerSnapshot: undefined, error: undefined, status: 'never' })
+    for (const g of Object.values(this.db.data.games)) Object.assign(g, { lastSnapshotId: undefined, lastHashes: undefined, lastBackupAt: undefined, newerSnapshot: undefined, resolvedHeads: undefined, retryAt: undefined, error: undefined, status: 'never' })
     this.db.data.maintenance = {}
     this.engine.saveMeBytes = 0
     this.engine.invalidateBackupUsage()
@@ -365,6 +371,7 @@ export class SaveMeApp {
   }
 
   updateSettings(patch: Partial<Settings>): Settings {
+    if (patch.appearance !== undefined) validateAppearance(patch.appearance)
     if (patch.retention !== undefined) validateRetention(patch.retention)
     const previous = { ...this.db.data.settings }
     Object.assign(this.db.data.settings, patch)

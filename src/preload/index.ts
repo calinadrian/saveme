@@ -9,6 +9,13 @@ const channels = [
   'setTracked',
   'history',
   'restore',
+  'previewRestore',
+  'verifySnapshot',
+  'renameSnapshot',
+  'pinSnapshot',
+  'unpinSnapshot',
+  'diagnostics',
+  'exportDiagnostics',
   'keepLocal',
   'connect',
   'configureAndConnect',
@@ -28,6 +35,25 @@ const channels = [
 ] as const
 
 const api: Record<string, unknown> = {}
+api.initialTheme = ipcRenderer.sendSync('theme:initial')
+const applyTheme = (): void => {
+  if (document.documentElement) document.documentElement.dataset.theme = api.initialTheme as string
+}
+// Preload may run before <html> exists. Apply as soon as it is parsed, before CSS paints.
+if (document.documentElement) applyTheme()
+else {
+  const observer = new MutationObserver(() => {
+    if (document.documentElement) { applyTheme(); observer.disconnect() }
+  })
+  observer.observe(document, { childList: true })
+}
+ipcRenderer.on('theme', (_event, theme: 'dark' | 'light') => { api.initialTheme = theme; applyTheme() })
+api.onTheme = (fn: (theme: 'dark' | 'light') => void) => {
+  const listener = (_: unknown, theme: 'dark' | 'light'): void => fn(theme)
+  ipcRenderer.on('theme', listener)
+  fn(api.initialTheme as 'dark' | 'light')
+  return () => ipcRenderer.removeListener('theme', listener)
+}
 for (const ch of channels) {
   api[ch] = async (...args: unknown[]) => {
     const res = await ipcRenderer.invoke(ch, ...args)

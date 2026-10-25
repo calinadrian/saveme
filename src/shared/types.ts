@@ -1,6 +1,8 @@
 // Types shared between the main process and the renderer.
 
 export type ProviderKind = 'gdrive' | 'onedrive' | 'local'
+export type Appearance = 'dark' | 'light' | 'system'
+export type ResolvedTheme = 'dark' | 'light'
 
 export type GameStatus = 'synced' | 'pending' | 'backing-up' | 'cloud-newer' | 'error' | 'never'
 
@@ -29,6 +31,9 @@ export interface Game {
   lastHashes?: Record<string, string>
   error?: string
   newerSnapshot?: SnapshotMeta
+  retryAt?: number
+  /** Explicitly acknowledged remote heads; consumed by the next backup. */
+  resolvedHeads?: string[]
 }
 
 export interface SnapshotMeta {
@@ -41,12 +46,49 @@ export interface SnapshotMeta {
   sizeBytes: number
   zipBytes: number
   files: Record<string, string>
+  parents?: string[]
+  label?: string
+  pinned?: boolean
+  verification?: VerificationResult
+}
+
+export interface VerificationResult {
+  status: 'verified' | 'corrupt' | 'unavailable'
+  checkedAt: string
+  fileCount?: number
+  bytes?: number
+}
+
+export interface RestorePreview {
+  token: string
+  added: string[]
+  replaced: string[]
+  unchanged: string[]
+  extra: string[]
+}
+
+export interface OperationProgress {
+  stage: 'reading' | 'compressing' | 'uploading' | 'downloading' | 'verifying' | 'restoring'
+  completed: number
+  total?: number
+  unit: 'bytes' | 'files'
+}
+
+export interface DiagnosticsReport {
+  format: 1
+  generatedAt: string
+  runtime: Record<string, string>
+  storage: { kind?: ProviderKind; connected: boolean; usageStatus: string; totalBytes?: number; usedBytes?: number }
+  health: { games: number; tracked: number; queued: number; recoveryRequired: boolean; operation?: string; failedGames: number }
+  recentEvents: { at: string; kind: string; code: string }[]
 }
 
 export interface GameIndex {
   gameId: string
   name: string
   snapshots: SnapshotMeta[]
+  heads?: string[]
+  incomplete?: boolean
 }
 
 export interface Catalog {
@@ -69,6 +111,7 @@ export interface RetentionPolicy {
 }
 
 export interface Settings {
+  appearance: Appearance
   provider?: ProviderKind
   localFolder?: string
   /** Folder inside the storage that holds the backups, per provider (see DEFAULT_REMOTE_FOLDER). */
@@ -98,7 +141,7 @@ export interface ActivityItem {
 export interface AppState {
   backupUsage?: { status: 'loading'; completed?: number; total?: number } | { status: 'unavailable' } | { status: 'ready'; bytes: number }
   recoveryWarning?: string
-  operation?: { kind: 'backup' | 'restore' | 'storage' | 'checking'; gameId?: string }
+  operation?: { kind: 'backup' | 'restore' | 'storage' | 'checking' | 'verify' | 'preview' | 'history'; gameId?: string; progress?: OperationProgress }
   machine: string
   settings: Settings
   games: Game[]

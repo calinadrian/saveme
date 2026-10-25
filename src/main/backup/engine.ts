@@ -1,15 +1,18 @@
 import crypto from 'node:crypto'
-import { AppState, Catalog, Game, GameIndex, SnapshotMeta } from '../../shared/types'
-import { isTransient, readJson, StorageProvider, writeJson } from '../cloud/provider'
+import fs from 'node:fs/promises'
+import path from 'node:path'
+import { AppState, Game, GameIndex, SnapshotMeta, RestorePreview, VerificationResult } from '../../shared/types'
+import { isTransient, StorageProvider } from '../cloud/provider'
 import { KnownFolders, Portable } from '../detect/paths'
 import { Db } from '../store/db'
 import { snapshotsToPrune } from './retention'
-import { buildZip, collectFiles, localState, prepareRestore, sameHashes, SnapshotBusyError } from './snapshot'
+import { collectFiles, sameHashes, SnapshotBusyError } from './snapshot'
+import { capture, freeSpace, inspectArchive, Progress, zipFiles } from './streaming'
 import { applyRestore, RecoveryRequiredError } from './restore'
 import { measureBackupUsage, USAGE_TIMEOUT_MS } from './usage'
+import { History, SnapshotRecord, validId, HistoryView } from './history'
 
 type Trigger = SnapshotMeta['trigger']
-
 export interface EngineDeps {
   db: Db
   folders: KnownFolders
@@ -19,24 +22,15 @@ export interface EngineDeps {
   changed: () => void
   rescan?: () => Promise<void>
 }
-
-const CATALOG = 'catalog.json'
 const RETRY_DELAYS = [30_000, 120_000, 600_000, 1_800_000]
-
 export function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`
+  if (n < 1024) return n + ' B'
   const units = ['KB', 'MB', 'GB', 'TB']
-  let v = n / 1024
-  let i = 0
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024
-    i++
-  }
-  return `${v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`
+  let value = n / 1024, unit = 0
+  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++ }
+  return value.toFixed(value < 10 ? 1 : 0) + ' ' + units[unit]
 }
-
-const newest = (index?: GameIndex): SnapshotMeta | undefined =>
-  index?.snapshots.reduce<SnapshotMeta | undefined>((a, s) => (!a || s.createdAt >= a.createdAt ? s : a), undefined)
+const newest = (index?: GameIndex): SnapshotMeta | undefined => index?.snapshots.at(-1)
 
 export class BackupEngine {
   saveMeBytes = 0
@@ -52,238 +46,156 @@ export class BackupEngine {
   private retryTimer?: NodeJS.Timeout
   private retries = 0
   private stopping = false
-
+  private controller?: AbortController
+  private lastProgress = 0
   constructor(private deps: EngineDeps) {}
-
-  /** One local coordinator for file writes, metadata updates, and destination changes. */
+  private get db(): Db { return this.deps.db }
+  private get machine(): { name: string; id: string } { return { name: this.db.machine, id: this.db.data.machineId } }
+  private connected(): StorageProvider | undefined { const p = this.deps.provider(); return p?.isConnected() ? p : undefined }
+  private history(): History {
+    const provider = this.connected()
+    if (!provider) throw new Error('Connect storage to continue')
+    return new History(provider, this.machine.id)
+  }
+  private verificationKey(id: string): string {
+    const p = this.connected(), s = this.db.data.settings
+    return crypto.createHash('sha256').update(JSON.stringify([p?.kind, p?.account(), s.localFolder, s.remoteFolder, id])).digest('hex')
+  }
+  private update(game: Game, patch: Partial<Game>): void { Object.assign(game, patch); this.db.save(); this.deps.changed() }
+  private progress: Progress = (stage, completed, total, unit = 'bytes') => {
+    if (!this.operation) return
+    const changed = this.operation.progress?.stage !== stage
+    this.operation.progress = { stage, completed, total: total || undefined, unit }
+    if (changed || completed === total || Date.now() - this.lastProgress >= 250) { this.lastProgress = Date.now(); this.deps.changed() }
+  }
   exclusive<T>(operation: NonNullable<AppState['operation']>, work: () => Promise<T>): Promise<T> {
     const result = this.tail.then(async () => {
       if (this.recoveryRequired) throw new Error(this.recoveryRequired)
       this.operation = operation
       this.active = operation.kind === 'backup' ? operation.gameId : undefined
-      this.deps.changed()
+      this.controller = new AbortController(); this.lastProgress = 0; this.deps.changed()
       try { return await work() }
-      finally { this.operation = undefined; this.active = undefined; this.deps.changed() }
+      finally { this.operation = undefined; this.active = undefined; this.controller = undefined; this.deps.changed() }
     })
     this.tail = result.catch(() => {})
     return result
   }
-
   async drain(): Promise<void> { await this.tail }
-
-  stop(): void { this.stopping = true; clearTimeout(this.retryTimer); this.invalidateBackupUsage() }
-
+  stop(): void {
+    this.stopping = true; clearTimeout(this.retryTimer); this.invalidateBackupUsage()
+    if (this.operation?.kind !== 'restore' && this.operation?.kind !== 'storage') this.controller?.abort(new Error('SaveMe is closing; the backup will retry next time'))
+  }
   invalidateBackupUsage(): void {
-    this.usageGeneration++
-    this.usageController?.abort(new Error('Backup storage changed'))
-    this.usageController = undefined
-    this.usageTask = undefined
-    this.backupUsage = { status: 'unavailable' }
-    this.deps.changed()
+    this.usageGeneration++; this.usageController?.abort(new Error('Backup storage changed'))
+    this.usageController = undefined; this.usageTask = undefined; this.backupUsage = { status: 'unavailable' }; this.deps.changed()
   }
-
-  private get db(): Db {
-    return this.deps.db
-  }
-
-  private get machine(): { name: string; id: string } {
-    return { name: this.db.machine, id: this.db.data.machineId }
-  }
-
-  private connected(): StorageProvider | undefined {
-    const p = this.deps.provider()
-    return p?.isConnected() ? p : undefined
-  }
-
-  private update(game: Game, patch: Partial<Game>): void {
-    Object.assign(game, patch)
-    this.db.save()
-    this.deps.changed()
-  }
-
-  get queue(): string[] {
-    return this.db.data.queue.map((q) => q.gameId)
-  }
-
+  get queue(): string[] { return this.db.data.queue.map(q => q.gameId) }
   enqueue(gameId: string, trigger: Trigger): void {
     const game = this.db.data.games[gameId]
     if (this.stopping || !game?.tracked) return
-    if (!this.db.data.queue.some((q) => q.gameId === gameId)) {
+    if (!this.db.data.queue.some(q => q.gameId === gameId)) {
       this.db.data.queue.push({ gameId, trigger })
       if (game.status !== 'cloud-newer') this.update(game, { status: 'pending' })
       this.db.save()
     }
     void this.kick()
   }
-
-  /** Works through the queue one game at a time. Transient failures keep the job and retry later. */
   async kick(): Promise<void> {
     if (this.stopping || this.processing || !this.connected()) return
-    this.processing = true
-    clearTimeout(this.retryTimer)
+    this.processing = true; clearTimeout(this.retryTimer)
     try {
       while (!this.stopping && this.db.data.queue.length) {
-        const job = this.db.data.queue[0]
-        const game = this.db.data.games[job.gameId]
+        const job = this.db.data.queue[0], game = this.db.data.games[job.gameId]
         if (game?.tracked) {
-          try {
-            await this.backup(game, job.trigger as Trigger)
-            this.retries = 0
-          } catch (e) {
-            if (!this.connected()) {
-              this.update(game, { status: 'pending', error: 'Connect storage to resume this backup' })
-              return
-            }
+          try { await this.backup(game, job.trigger as Trigger); this.retries = 0; this.update(game, { retryAt: undefined }) }
+          catch (e) {
+            if (this.stopping) return
+            if (!this.connected()) { this.update(game, { status: 'pending', error: 'Connect storage to resume this backup' }); return }
             if (isTransient(e)) {
               const delay = RETRY_DELAYS[Math.min(this.retries++, RETRY_DELAYS.length - 1)]
-              this.update(game, { status: 'pending', error: e instanceof SnapshotBusyError ? e.message : 'Storage unavailable, will retry' })
-              if (this.stopping) return
-              this.retryTimer = setTimeout(() => void this.kick(), delay)
-              this.retryTimer.unref()
-              return
+              this.update(game, { status: 'pending', retryAt: Date.now() + delay, error: e instanceof SnapshotBusyError ? e.message : 'Storage unavailable, will retry' })
+              this.retryTimer = setTimeout(() => void this.kick(), delay); this.retryTimer.unref(); return
             }
             this.update(game, { status: 'error', error: (e as Error).message })
-            this.db.log({ kind: 'error', gameId: game.id, message: `${game.name}: ${(e as Error).message}` })
-            this.deps.notify(`${game.name}: backup failed`, (e as Error).message, game.id)
+            this.db.log({ kind: 'error', gameId: game.id, message: game.name + ': ' + (e as Error).message })
+            this.deps.notify(game.name + ': backup failed', (e as Error).message, game.id)
           }
         }
-        this.db.data.queue.shift()
-        this.db.save()
+        this.db.data.queue.shift(); this.db.save()
       }
-      if (!this.stopping) {
-        await this.exclusive({ kind: 'checking' }, () => this.maintainHistory())
-        void this.refreshBackupUsage()
-      }
-    } catch (e) {
-      this.db.log({ kind: 'error', message: `Background backup work stopped: ${(e as Error).message}` })
-    } finally {
-      this.processing = false
-      this.deps.changed()
-    }
+      if (!this.stopping) { await this.exclusive({ kind: 'checking' }, () => this.maintainHistory()); void this.refreshBackupUsage() }
+    } catch (e) { this.db.log({ kind: 'error', message: 'Background backup work stopped: ' + (e as Error).message }) }
+    finally { this.processing = false; this.deps.changed() }
   }
-
   async index(gameId: string): Promise<GameIndex | undefined> {
-    if (!/^[\w-]+$/.test(gameId)) throw new Error('Invalid game ID')
-    const p = this.connected()
-    const index = p ? await readJson<GameIndex>(p, `${gameId}/index.json`) : undefined
-    if (index && (index.gameId !== gameId || !Array.isArray(index.snapshots) || index.snapshots.some(s =>
-      !s || !/^[\w-]+$/.test(s.id) || !s.files || typeof s.files !== 'object' || Array.isArray(s.files) ||
-      !Number.isSafeInteger(s.sizeBytes) || s.sizeBytes < 0 || !Number.isFinite(Date.parse(s.createdAt))
-    ))) throw new Error('Backup history is invalid; no saves were changed')
-    return index
+    if (!validId(gameId)) throw new Error('Invalid game ID')
+    if (!this.connected()) return undefined
+    const view = await this.history().load(gameId)
+    for (const s of view.index.snapshots) s.verification = this.db.data.verifications?.[this.verificationKey(s.id)]
+    return view.records.size ? view.index : undefined
   }
-
-  /** Takes a snapshot and uploads it if anything changed. Returns the new snapshot, if one was made. */
+  private async job<T>(work: (directory: string) => Promise<T>): Promise<T> {
+    await freeSpace(this.db.stagingDirectory, 0)
+    const directory = await fs.mkdtemp(path.join(this.db.stagingDirectory, 'job-'))
+    try { return await work(directory) } finally { await fs.rm(directory, { recursive: true, force: true }) }
+  }
+  private async local(game: Game, directory?: string) {
+    const files = collectFiles(game, this.deps.folders)
+    const state = await capture(files, new Portable(this.deps.folders, game.installDir), directory, this.progress)
+    const after = collectFiles(game, this.deps.folders)
+    if (files.length !== after.length || files.some((f,i) => f !== after[i])) throw new SnapshotBusyError(game.name)
+    return state
+  }
   async backup(game: Game, trigger: Trigger): Promise<SnapshotMeta | undefined> {
     return this.exclusive({ kind: 'backup', gameId: game.id }, async () => {
       if (!game.tracked) return undefined
-      if (this.deps.isRunning(game.id)) throw new SnapshotBusyError(`${game.name} is running`)
+      if (this.deps.isRunning(game.id)) throw new SnapshotBusyError(game.name + ' is running')
       try { return await this.backupInternal(game, trigger) }
       catch (e) { this.update(game, { status: isTransient(e) ? 'pending' : 'error', error: (e as Error).message }); throw e }
     })
   }
-
   private async backupInternal(game: Game, trigger: Trigger, protectedId?: string): Promise<SnapshotMeta | undefined> {
-    const provider = this.connected()
-    if (!provider) throw new Error('No cloud storage connected')
-    this.update(game, { status: 'backing-up' })
-
-    const portable = new Portable(this.deps.folders, game.installDir)
-    const files = collectFiles(game, this.deps.folders)
-    const state = await localState(files, portable)
-    const after = collectFiles(game, this.deps.folders)
-    if (files.length !== after.length || files.some((f, i) => f !== after[i])) throw new SnapshotBusyError(game.name)
-    const fileCount = Object.keys(state.hashes).length
-    if (!fileCount) {
-      if (game.lastHashes && Object.keys(game.lastHashes).length) throw new Error('Previously backed-up save files are missing. Check the save folder before retrying.')
-      this.update(game, { status: game.newerSnapshot ? 'cloud-newer' : 'never', fileCount: 0, sizeBytes: 0 })
-      return undefined
-    }
-    if (sameHashes(state.hashes, game.lastHashes)) {
-      await this.maintainHistory()
-      this.update(game, { status: game.newerSnapshot ? 'cloud-newer' : 'synced', error: undefined })
-      return undefined
-    }
-
-    const index: GameIndex = (await this.index(game.id)) ?? { gameId: game.id, name: game.name, snapshots: [] }
-    const latest = newest(index)
-    if (latest && sameHashes(latest.files, state.hashes)) {
-      // Already in the cloud (e.g. restored, or identical on another PC).
-      this.update(game, { status: 'synced', lastSnapshotId: latest.id, lastHashes: state.hashes, lastBackupAt: latest.createdAt, newerSnapshot: undefined, error: undefined })
-      return undefined
-    }
-    if (!game.lastSnapshotId && latest && trigger !== 'pre-restore') {
-      // First time on this PC and the cloud already has saves: never let a fresh local save look newer.
-      this.update(game, { status: 'cloud-newer', newerSnapshot: latest })
-      this.deps.notify(`${game.name}: saves found in the cloud`, `From ${latest.machine}, ${new Date(latest.createdAt).toLocaleString()}. Open SaveMe to restore or keep this PC's save.`, game.id)
-      return undefined
-    }
-    if (latest && latest.id !== game.lastSnapshotId && latest.machineId !== this.machine.id) {
-      this.db.log({ kind: 'info', gameId: game.id, message: `${game.name}: also played on ${latest.machine}. Both versions are kept in history.` })
-    }
-
-    const createdAt = new Date().toISOString()
-    const meta: SnapshotMeta = {
-      id: `${createdAt.replace(/[:.]/g, '-')}_${this.machine.name.replace(/[^A-Za-z0-9-]/g, '')}_${crypto.randomUUID()}`,
-      gameId: game.id,
-      createdAt,
-      machine: this.machine.name,
-      machineId: this.machine.id,
-      trigger,
-      sizeBytes: state.sizeBytes,
-      zipBytes: 0,
-      files: state.hashes
-    }
-    const zip = await buildZip(state, { ...meta, game: game.name, roots: game.roots.map((r) => r.template) })
-    if (this.deps.isRunning(game.id)) throw new SnapshotBusyError(`${game.name} is running`)
-    meta.zipBytes = zip.length
-    await provider.put(`${game.id}/${meta.id}.zip`, zip)
-    this.invalidateBackupUsage()
-
-    index.name = game.name
-    index.snapshots.push(meta)
-    const pruned = snapshotsToPrune(index.snapshots, this.db.data.settings.retention).filter(s => s.id !== protectedId && s.id !== meta.id)
-    index.snapshots = index.snapshots.filter((s) => !pruned.includes(s))
-    await writeJson(provider, `${game.id}/index.json`, index)
-    this.db.data.maintenance[game.id] = [...new Set([...(this.db.data.maintenance[game.id] ?? []), ...pruned.map(s => s.id)])]
-    this.db.flush()
-    await this.maintainHistory()
-
-    this.update(game, {
-      status: 'synced',
-      lastSnapshotId: meta.id,
-      lastHashes: state.hashes,
-      lastBackupAt: createdAt,
-      sizeBytes: state.sizeBytes,
-      fileCount,
-      newerSnapshot: undefined,
-      error: undefined
+    const history = this.history(), provider = history.provider
+    this.update(game, { status: 'backing-up', error: undefined })
+    return this.job(async directory => {
+      const state = await this.local(game, directory), fileCount = Object.keys(state.hashes).length
+      const view = await history.load(game.id), latest = newest(view.index)
+      if (view.index.incomplete) throw new SnapshotBusyError('Backup storage is still syncing; waiting for complete history')
+      if (!fileCount) {
+        if (game.lastHashes && Object.keys(game.lastHashes).length) throw new Error('Previously backed-up save files are missing. Check the save folder before retrying.')
+        this.update(game, { status: latest ? 'cloud-newer' : 'never', newerSnapshot: latest, fileCount: 0, sizeBytes: 0 }); return undefined
+      }
+      const matching = view.index.snapshots.find(s => sameHashes(s.files, state.hashes))
+      const remote = view.index.snapshots.filter(s => view.index.heads?.includes(s.id) && s.id !== game.lastSnapshotId && s.machineId !== this.machine.id && !game.resolvedHeads?.includes(s.id)).at(-1)
+      if (trigger !== 'pre-restore' && ((!game.lastSnapshotId && latest && !matching) || remote && !sameHashes(remote.files, state.hashes))) {
+        const candidate = remote ?? latest!
+        this.update(game, { status: 'cloud-newer', newerSnapshot: candidate })
+        this.deps.notify(game.name + ': review saves from another PC', 'Restore a cloud version or keep this PC’s save. Both branches remain in history.', game.id)
+        return undefined
+      }
+      if (matching && !game.resolvedHeads?.length) {
+        this.update(game, { status: 'synced', lastSnapshotId: matching.id, lastHashes: state.hashes, lastBackupAt: matching.createdAt, newerSnapshot: undefined, error: undefined })
+        await this.maintainHistory(game.id, protectedId); return undefined
+      }
+      const createdAt = new Date().toISOString()
+      const parents = game.resolvedHeads ?? (game.lastSnapshotId && view.records.has(game.lastSnapshotId) ? [game.lastSnapshotId] : [])
+      const meta: SnapshotMeta = { id: crypto.randomUUID(), gameId: game.id, createdAt, machine: this.machine.name, machineId: this.machine.id, trigger, sizeBytes: state.sizeBytes, zipBytes: 0, files: state.hashes, parents }
+      const zip = path.join(directory, 'snapshot.zip')
+      await zipFiles(state, { ...meta, game: game.name, roots: game.roots.map(r => r.template) }, zip, this.progress)
+      if (this.deps.isRunning(game.id)) throw new SnapshotBusyError(game.name + ' is running')
+      this.controller?.signal.throwIfAborted()
+      meta.zipBytes = (await fs.stat(zip)).size
+      const archive = await provider.putFile(game.id + '/' + meta.id + '.zip', zip, { signal: this.controller?.signal, progress: (n,t) => this.progress('uploading', n,t) })
+      const record: SnapshotRecord = { format: 2, kind: 'snapshot', id: meta.id, clock: view.clock + 1, machineId: this.machine.id, snapshot: meta, name: game.name, archive, parents }
+      await history.commit(game.id, record)
+      this.invalidateBackupUsage()
+      this.update(game, { status: 'synced', lastSnapshotId: meta.id, lastHashes: state.hashes, lastBackupAt: createdAt, sizeBytes: state.sizeBytes, fileCount, newerSnapshot: undefined, resolvedHeads: undefined, error: undefined })
+      await this.maintainHistory(game.id, protectedId)
+      this.db.log({ kind: 'backup', gameId: game.id, message: game.name + ' backed up (' + formatBytes(meta.zipBytes) + ', ' + fileCount + ' files)' })
+      if (trigger === 'game-exit' || trigger === 'file-change') this.deps.notify(game.name + ' saved to ' + provider.label, formatBytes(meta.zipBytes) + ' · ' + fileCount + ' files', game.id)
+      return meta
     })
-    this.db.log({ kind: 'backup', gameId: game.id, message: `${game.name} backed up (${formatBytes(zip.length)}, ${fileCount} files)` })
-    if (trigger === 'game-exit' || trigger === 'file-change') {
-      this.deps.notify(`${game.name} saved to ${provider.label}`, `${formatBytes(zip.length)} · ${fileCount} files`, game.id)
-    }
-    return meta
   }
-
-  private async updateCatalog(provider: StorageProvider, index: GameIndex): Promise<void> {
-    const catalog: Catalog = (await readJson<Catalog>(provider, CATALOG)) ?? { updatedAt: '', games: [] }
-    const latest = newest(index)
-    const entry = {
-      id: index.gameId,
-      name: index.name,
-      snapshots: index.snapshots.length,
-      bytes: index.snapshots.reduce((n, s) => n + s.zipBytes, 0),
-      lastBackupAt: latest?.createdAt,
-      lastSnapshotId: latest?.id,
-      lastMachine: latest?.machineId
-    }
-    catalog.games = [...catalog.games.filter((g) => g.id !== index.gameId), entry]
-    catalog.updatedAt = new Date().toISOString()
-    await writeJson(provider, CATALOG, catalog)
-    this.saveMeBytes = catalog.games.reduce((n, g) => n + g.bytes, 0)
-  }
-
   /** Count stored archives, including files awaiting cleanup, rather than guessing from the policy. */
   refreshBackupUsage(): Promise<void> {
     if (this.usageTask) return this.usageTask
@@ -326,100 +238,180 @@ export class BackupEngine {
     return task
   }
 
-  /** Persisted, best-effort maintenance: metadata failure must never cause archive deletion. */
-  private async maintainHistory(): Promise<void> {
-    const provider = this.connected()
-    if (!provider) return
-    for (const [gameId, pending] of Object.entries(this.db.data.maintenance)) {
+
+  private async maintainHistory(onlyGame?: string, protectedId?: string): Promise<void> {
+    if (!this.connected()) return
+    const history = this.history()
+    const ids = onlyGame ? [onlyGame] : [...new Set([...Object.keys(this.db.data.games), ...Object.keys(this.db.data.maintenance)])]
+    let bytes = 0
+    for (const gameId of ids) {
       try {
-        const index = await this.index(gameId)
-        if (!index) throw new Error('Committed history is unavailable')
-        await this.updateCatalog(provider, index)
-        for (const id of pending) if (!index.snapshots.some(s => s.id === id)) await provider.remove(`${gameId}/${id}.zip`)
-        delete this.db.data.maintenance[gameId]
-        this.db.save()
-      } catch (e) {
-        this.db.log({ kind: 'error', gameId, message: `Backup history maintenance will retry: ${(e as Error).message}` })
+        let view = await history.load(gameId)
+        bytes += view.index.snapshots.reduce((n,s) => n + s.zipBytes, 0)
+        if (view.index.incomplete) continue
+        const protectedIds = new Set([...(view.index.heads ?? []), protectedId])
+        for (const s of view.index.snapshots) if (s.pinned) protectedIds.add(s.id)
+        const prune = snapshotsToPrune(view.index.snapshots, this.db.data.settings.retention).filter(s => !protectedIds.has(s.id))
+        for (const s of prune) { await history.event(view, s.id, 'prune'); view.clock++ }
+        view = await history.load(gameId)
+        this.db.data.maintenance[gameId] = [...view.pruned]
+        this.db.flush()
+        for (const id of view.pruned) {
+          const record = view.records.get(id)
+          if (record && view.available.has(record.archive) && id !== protectedId && !view.pins.get(id)?.length) await history.provider.remove(record.archive)
+        }
+        const removed = new Set(view.events.filter(e => e.kind === 'unpin').flatMap(e => e.observed ?? []))
+        for (const e of view.events) if (e.kind === 'pin' && removed.has(e.id) && e.archive && view.available.has(e.archive)) await history.provider.remove(e.archive)
+        delete this.db.data.maintenance[gameId]; this.db.save()
+      } catch (e) { this.db.log({ kind: 'error', gameId, message: 'Backup history maintenance will retry: ' + (e as Error).message }) }
+    }
+    if (!onlyGame) this.saveMeBytes = bytes
+    else this.saveMeBytes = Math.max(this.saveMeBytes, bytes)
+  }
+  private async download(history: History, view: HistoryView, snapshotId: string, directory: string): Promise<string> {
+    const zip = path.join(directory, 'download.zip')
+    const snap = view.index.snapshots.find(s => s.id === snapshotId)
+    if (!snap) throw new Error('Snapshot not found')
+    await freeSpace(directory, snap.zipBytes + snap.sizeBytes)
+    const found = await history.provider.getFile(history.archive(view, snapshotId), zip, { signal: this.controller?.signal, progress: (n,t) => this.progress('downloading', n,t || snap.zipBytes) })
+    if (!found) throw new Error('Snapshot file missing in storage; it may still be syncing')
+    return zip
+  }
+  private async comparison(game: Game, snapshot: SnapshotMeta): Promise<RestorePreview> {
+    const state = await this.local(game), hashes = state.hashes
+    const portable = new Portable(this.deps.folders, game.installDir)
+    for (const key of Object.keys(snapshot.files)) {
+      const target = portable.fromPortable(key)
+      if (!target) throw new Error('Cannot resolve snapshot destination: ' + key)
+      if (!Object.hasOwn(hashes, key)) {
+        try { const local = await capture([target], portable); Object.assign(hashes, local.hashes) }
+        catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e }
       }
     }
+    const preview: RestorePreview = { token: crypto.createHash('sha256').update(JSON.stringify(Object.entries(hashes).sort())).digest('hex'), added: [], replaced: [], unchanged: [], extra: [] }
+    for (const [key,hash] of Object.entries(snapshot.files)) (hashes[key] === undefined ? preview.added : hashes[key] === hash ? preview.unchanged : preview.replaced).push(key)
+    for (const key of Object.keys(hashes)) if (!Object.hasOwn(snapshot.files,key)) preview.extra.push(key)
+    return preview
   }
-
-  async restore(gameId: string, snapshotId: string): Promise<void> {
+  async previewRestore(gameId: string, snapshotId: string): Promise<RestorePreview> {
+    return this.exclusive({ kind: 'preview', gameId }, async () => {
+      const game = this.db.data.games[gameId], view = await this.history().load(gameId), snap = view.index.snapshots.find(s => s.id === snapshotId)
+      if (!game || !snap) throw new Error('Snapshot not found')
+      if (this.deps.isRunning(gameId)) throw new Error('Close the game before comparing saves')
+      return this.comparison(game, snap)
+    })
+  }
+  async restore(gameId: string, snapshotId: string, previewToken?: string): Promise<void> {
     await this.exclusive({ kind: 'restore', gameId }, async () => {
-      try { await this.restoreInternal(gameId, snapshotId) }
-      catch (e) {
+      try {
+        const history = this.history(), game = this.db.data.games[gameId], view = await history.load(gameId)
+        const snap = view.index.snapshots.find(s => s.id === snapshotId)
+        if (!game || !snap) throw new Error('Snapshot not found')
+        if (this.deps.isRunning(gameId)) throw new Error('Close ' + game.name + ' before restoring')
+        if (previewToken && (await this.comparison(game,snap)).token !== previewToken) throw new Error('Local files changed. Review the restore comparison again.')
+        await this.job(async directory => {
+          const zip = await this.download(history,view,snapshotId,directory)
+          const files = await inspectArchive(zip,snap,path.join(directory,'extracted'),new Portable(this.deps.folders,game.installDir),this.progress)
+          if (game.roots.length) await this.backupInternal(game,'pre-restore',snapshotId)
+          if (previewToken && (await this.comparison(game,snap)).token !== previewToken) throw new Error('Local files changed. Review the restore comparison again.')
+          await applyRestore(files,this.db.recoveryDirectory,() => {
+            if (this.deps.isRunning(gameId)) throw new Error('Close ' + game.name + ' before restoring')
+          },(n,t) => this.progress('restoring',n,t,'files'))
+        })
+        const heads = (await history.load(gameId)).index.heads
+        this.update(game,{ status: 'synced', lastSnapshotId: snap.id, lastHashes: snap.files, lastBackupAt: snap.createdAt, newerSnapshot: undefined, resolvedHeads: heads, error: undefined })
+        this.db.log({ kind: 'restore', gameId, message: game.name + ' restored from ' + snap.machine })
+      } catch (e) {
         if (e instanceof RecoveryRequiredError) { this.recoveryRequired = e.message; this.stop() }
         const game = this.db.data.games[gameId]
-        if (game) this.update(game, { status: 'error', error: `Restore failed: ${(e as Error).message}` })
-        this.db.log({ kind: 'error', gameId, message: `Restore failed: ${(e as Error).message}` })
-        throw e
+        if (game) this.update(game,{ status: 'error',error: 'Restore failed: ' + (e as Error).message })
+        this.db.log({ kind: 'error',gameId,message: 'Restore failed: ' + (e as Error).message }); throw e
       }
     })
     if (!this.db.data.games[gameId]?.roots.length) await this.deps.rescan?.()
   }
-
-  private async restoreInternal(gameId: string, snapshotId: string): Promise<void> {
-    const provider = this.connected()
-    const game = this.db.data.games[gameId]
-    if (!provider || !game) throw new Error('Not connected')
-    if (this.deps.isRunning(gameId)) throw new Error(`Close ${game.name} before restoring`)
-    const index = await this.index(gameId)
-    const snap = index?.snapshots.find((s) => s.id === snapshotId)
-    if (!snap) throw new Error('Snapshot not found')
-
-    const zip = await provider.get(`${gameId}/${snapshotId}.zip`)
-    if (!zip) throw new Error('Snapshot file missing in the cloud')
-    const files = prepareRestore(zip, new Portable(this.deps.folders, game.installDir), snap)
-    if (game.roots.length) await this.backupInternal(game, 'pre-restore', snapshotId)
-    const written = await applyRestore(files, this.db.recoveryDirectory, () => {
-      if (this.deps.isRunning(gameId)) throw new Error(`Close ${game.name} before restoring`)
+  async verifySnapshot(gameId: string, snapshotId: string): Promise<VerificationResult> {
+    return this.exclusive({ kind: 'verify', gameId }, async () => {
+      const result: VerificationResult = { status: 'unavailable', checkedAt: new Date().toISOString() }
+      try {
+        const history = this.history(), view = await history.load(gameId), snap = view.index.snapshots.find(s => s.id === snapshotId)
+        if (!snap) throw new Error('Snapshot not found')
+        await this.job(async directory => {
+          const zip = await this.download(history,view,snapshotId,directory)
+          try { await inspectArchive(zip,snap,path.join(directory,'verified'),undefined,this.progress) }
+          catch (e) { if (['ENOSPC','EACCES','EPERM','ENOENT','EIO'].includes((e as NodeJS.ErrnoException).code ?? '')) throw e; result.status = 'corrupt'; throw e }
+        })
+        result.status = 'verified'; result.bytes = snap.sizeBytes; result.fileCount = Object.keys(snap.files).length
+      } catch { /* Typed results separate unavailable storage from invalid archives. */ }
+      this.db.data.verifications ??= {}; this.db.data.verifications[this.verificationKey(snapshotId)] = result
+      this.db.flush(); this.deps.changed(); return result
     })
-    this.update(game, { status: 'synced', lastSnapshotId: snap.id, lastHashes: snap.files, lastBackupAt: snap.createdAt, newerSnapshot: undefined, error: undefined })
-    this.db.log({ kind: 'restore', gameId, message: `${game.name} restored to ${new Date(snap.createdAt).toLocaleString()} from ${snap.machine} (${written.length} files)` })
   }
-
-  /** Marks the cloud's newer save as seen and keeps the local one (it will be uploaded next). */
+  async renameSnapshot(gameId: string, snapshotId: string, label: string): Promise<void> {
+    if (typeof label !== 'string' || label.length > 100 || /[\x00-\x1f]/.test(label)) throw new Error('Use a name of up to 100 characters')
+    await this.exclusive({ kind: 'history',gameId },async () => {
+      const history = this.history(), view = await history.load(gameId)
+      if (!view.index.snapshots.some(s => s.id === snapshotId)) throw new Error('Snapshot not found')
+      await history.event(view,snapshotId,'rename',{ label: label.trim() })
+    })
+  }
+  async pinSnapshot(gameId: string, snapshotId: string): Promise<void> {
+    await this.exclusive({ kind: 'history',gameId },async () => {
+      const history = this.history(),view = await history.load(gameId),snap = view.index.snapshots.find(s => s.id === snapshotId)
+      if (!snap) throw new Error('Snapshot not found')
+      if (view.pins.get(snapshotId)?.length) return
+      await this.job(async directory => {
+        const zip = await this.download(history,view,snapshotId,directory)
+        await inspectArchive(zip,snap,path.join(directory,'verified'),undefined,this.progress)
+        const archive = await history.provider.putFile(gameId + '/' + crypto.randomUUID() + '.pin.zip',zip,{ signal: this.controller?.signal,progress: (n,t) => this.progress('uploading',n,t) })
+        await history.event(view,snapshotId,'pin',{ archive })
+      })
+      this.invalidateBackupUsage()
+    })
+  }
+  async unpinSnapshot(gameId: string, snapshotId: string): Promise<void> {
+    await this.exclusive({ kind: 'history',gameId },async () => {
+      const history = this.history(),view = await history.load(gameId)
+      await history.event(view,snapshotId,'unpin',{ observed: (view.pins.get(snapshotId) ?? []).map(p => p.id) })
+      await this.maintainHistory(gameId); this.invalidateBackupUsage()
+    })
+  }
   async keepLocal(gameId: string): Promise<void> {
-    await this.exclusive({ kind: 'backup', gameId }, async () => {
+    await this.exclusive({ kind: 'history',gameId },async () => {
       const game = this.db.data.games[gameId]
-      if (!game) return
-      this.update(game, { status: 'pending', newerSnapshot: undefined, lastSnapshotId: game.newerSnapshot?.id ?? game.lastSnapshotId, lastHashes: undefined })
-      this.enqueue(gameId, 'manual')
+      if (!game) throw new Error('Game not found')
+      const view = await this.history().load(gameId)
+      this.update(game,{ status: 'pending',newerSnapshot: undefined,resolvedHeads: view.index.heads,lastHashes: undefined })
+      this.enqueue(gameId,'manual')
     })
   }
-
-  /** Looks for saves uploaded by other PCs. */
   async checkRemote(): Promise<void> {
-    return this.exclusive({ kind: 'checking' }, () => this.checkRemoteInternal())
-  }
-
-  private async checkRemoteInternal(): Promise<void> {
-    const provider = this.connected()
-    if (!provider) return
-    const catalog = await readJson<Catalog>(provider, CATALOG)
-    if (!catalog) return
-    this.saveMeBytes = catalog.games.reduce((n, g) => n + g.bytes, 0)
-    for (const entry of catalog.games) {
-      let game = this.db.data.games[entry.id]
-      if (game && entry.lastSnapshotId === game.lastSnapshotId) continue
-      if (entry.lastMachine === this.machine.id) continue
-      const latest = newest(await this.index(entry.id))
-      if (!latest) continue
-      if (!game) {
-        // Backed up on another PC, nothing found here yet: offer it for restore.
-        game = { id: entry.id, name: entry.name, roots: [], tracked: true, status: 'cloud-newer', sizeBytes: 0, fileCount: 0, newerSnapshot: latest }
-        this.db.data.games[entry.id] = game
-        this.update(game, {})
-        continue
+    return this.exclusive({ kind: 'checking' },async () => {
+      if (!this.connected()) return
+      const history = this.history(), roots = await history.provider.list('')
+      const ids = [...new Set(roots.filter(e => /^[\w-]+$/.test(e.name)).map(e => e.name))]
+      let bytes = 0
+      for (const id of ids) {
+        const view = await history.load(id)
+        bytes += view.index.snapshots.reduce((n,s) => n + s.zipBytes,0)
+        let game = this.db.data.games[id]
+        const candidates = view.index.snapshots.filter(s => view.index.heads?.includes(s.id) && s.id !== game?.lastSnapshotId && !game?.resolvedHeads?.includes(s.id))
+        const latest = candidates.at(-1) ?? newest(view.index)
+        if (!latest || game?.resolvedHeads?.includes(latest.id) || game?.lastSnapshotId === latest.id) continue
+        if (!game) {
+          game = { id,name: view.index.name,roots: [],tracked: true,status: 'cloud-newer',sizeBytes: 0,fileCount: 0,newerSnapshot: latest }
+          this.db.data.games[id] = game; this.update(game,{}); continue
+        }
+        if (game.newerSnapshot?.id === latest.id || this.deps.isRunning(id)) continue
+        const local = await this.local(game)
+        if (sameHashes(local.hashes,latest.files)) {
+          this.update(game,{ status: 'synced',lastSnapshotId: latest.id,lastHashes: local.hashes,lastBackupAt: latest.createdAt,newerSnapshot: undefined,error: undefined }); continue
+        }
+        this.update(game,{ status: 'cloud-newer',newerSnapshot: latest })
+        this.deps.notify('Review ' + game.name + ' saves from another PC','Restore a cloud version or keep this PC’s save.',id)
       }
-      if (game.newerSnapshot?.id === latest.id) continue
-      const local = await localState(collectFiles(game, this.deps.folders), new Portable(this.deps.folders, game.installDir))
-      if (sameHashes(local.hashes, latest.files)) {
-        this.update(game, { status: 'synced', lastSnapshotId: latest.id, lastHashes: local.hashes, lastBackupAt: latest.createdAt, newerSnapshot: undefined, error: undefined })
-        continue
-      }
-      this.update(game, { status: 'cloud-newer', newerSnapshot: latest })
-      this.deps.notify(`Newer ${game.name} save in the cloud`, `From ${latest.machine}, ${new Date(latest.createdAt).toLocaleString()}. Click to restore.`, game.id)
-    }
+      this.saveMeBytes = bytes
+      await this.maintainHistory()
+    })
   }
 }

@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
-import type { AppState, GameIndex, ProviderKind, Settings, UpdateState } from '../../shared/types'
+import type { AppState, GameIndex, ProviderKind, Settings, UpdateState, VerificationResult, RestorePreview, DiagnosticsReport } from '../../shared/types'
 
 export interface SaveMeApi {
+  initialTheme: 'dark' | 'light'
+  onTheme(fn: (theme: 'dark' | 'light') => void): () => void
   state(): Promise<AppState>
   artwork(id: string): Promise<string | undefined>
   scan(): Promise<void>
@@ -9,7 +11,14 @@ export interface SaveMeApi {
   backupNow(id: string): Promise<void>
   setTracked(id: string, tracked: boolean): Promise<void>
   history(id: string): Promise<GameIndex | undefined>
-  restore(id: string, snapshotId: string): Promise<void>
+  restore(id: string, snapshotId: string, token?: string): Promise<void>
+  previewRestore(id: string, snapshotId: string): Promise<RestorePreview>
+  verifySnapshot(id: string, snapshotId: string): Promise<VerificationResult>
+  renameSnapshot(id: string, snapshotId: string, label: string): Promise<void>
+  pinSnapshot(id: string, snapshotId: string): Promise<void>
+  unpinSnapshot(id: string, snapshotId: string): Promise<void>
+  diagnostics(): Promise<DiagnosticsReport>
+  exportDiagnostics(): Promise<boolean>
   keepLocal(id: string): Promise<void>
   connect(kind: ProviderKind, folder?: string, remoteFolder?: string): Promise<void>
   configureAndConnect(

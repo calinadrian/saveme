@@ -8,6 +8,7 @@ import { GameDetail } from './pages/GameDetail'
 import { Settings } from './pages/Settings'
 import { Onboarding } from './pages/Onboarding'
 import { protection } from '../../shared/protection'
+import { OperationStatus } from './recovery'
 
 export type Navigate = (route: string) => void
 
@@ -114,6 +115,7 @@ export function App() {
       </aside>
       <main ref={content} className="content" aria-label="SaveMe workspace">
         {state.recoveryWarning && <div className="alert warn" role="alert">{state.recoveryWarning}</div>}
+        <OperationStatus state={state} />
         {page}
       </main>
       {dialogs}

@@ -1,0 +1,65 @@
+// Exercises the actual testing ASAR, real preload/IPC, and packaged runtime dependencies.
+// The Electron test runner keeps the development Windows identity and an isolated profile;
+// it never changes the user's startup entry, shortcuts, saves, or cloud accounts.
+const { app } = require('electron')
+const fs = require('node:fs')
+const path = require('node:path')
+const crypto = require('node:crypto')
+const { pathToFileURL } = require('node:url')
+const assert = require('node:assert/strict')
+const root = path.resolve(__dirname,'..')
+const output = path.join(root,'.tmp','packaged-smoke',crypto.randomUUID())
+const packaged = path.join(root,'dist','testing','win-unpacked','resources','app.asar')
+fs.mkdirSync(output,{ recursive: true })
+app.setPath('userData',output)
+app.setAppPath(packaged)
+process.argv.push('--hidden')
+delete process.env.ELECTRON_RENDERER_URL
+const save = path.join(output,'saves','slot.sav')
+fs.mkdirSync(path.dirname(save),{ recursive: true }); fs.writeFileSync(save,'original packaged save')
+fs.mkdirSync(path.join(output,'cloud'),{ recursive: true })
+const state = {
+  machineId: crypto.randomUUID(), settings: { provider: 'local',localFolder: path.join(output,'cloud'),appearance: 'dark',startAtLogin: false,minimizeToTray: true,notifications: false,autoUpdate: false,retention: { keepLast: 3,keepDaily: 0,keepWeekly: 0 },extraLibraryFolders: [] },
+  games: { game: { id: 'game',name: 'Packaged smoke game',roots: [{ template: '',resolved: path.dirname(save).replaceAll('\\','/') }],tracked: true,status: 'never',sizeBytes: 0,fileCount: 0 } },
+  activity: [],tokens: {},queue: [],maintenance: {},lastScanAt: new Date().toISOString()
+}
+fs.writeFileSync(path.join(output,'state.json'),JSON.stringify(state))
+const windowReady = new Promise(resolve => app.once('browser-window-created',(_event,win) => { win.webContents.setBackgroundThrottling(false); resolve(win) }))
+const delay = ms => new Promise(resolve => setTimeout(resolve,ms))
+const watchdog = setTimeout(() => { console.error('Packaged smoke timed out'); app.exit(1) },60_000)
+;(async () => {
+  assert(fs.existsSync(packaged),'Build dist/testing first')
+  await import(pathToFileURL(path.join(packaged,'out','main','index.js')).href)
+  const win = await windowReady
+  const js = code => win.webContents.executeJavaScript(code)
+  const wait = async code => { const end = Date.now() + 15000; while (Date.now() < end) { try { if (await js(code)) return } catch {} await delay(50) } throw Error('Timed out: ' + code) }
+  await wait(`typeof window.saveme?.state === 'function' && !!document.querySelector('.shell')`)
+  assert.equal((await js('window.saveme.state()')).settings.autoUpdate,false)
+  await js(`window.saveme.backupNow('game')`)
+  await wait(`window.saveme.state().then(s => !!s.games[0].lastSnapshotId && !s.operation)`)
+  const id = (await js('window.saveme.state()')).games[0].lastSnapshotId
+  assert.equal((await js(`window.saveme.verifySnapshot('game',${JSON.stringify(id)})`)).status,'verified')
+  await js(`window.saveme.renameSnapshot('game',${JSON.stringify(id)},'Packaged verification')`)
+  await js(`window.saveme.pinSnapshot('game',${JSON.stringify(id)})`)
+  let history = await js(`window.saveme.history('game')`)
+  assert.equal(history.snapshots[0].pinned,true); assert.equal(history.snapshots[0].label,'Packaged verification')
+  fs.writeFileSync(save,'changed after backup')
+  const preview = await js(`window.saveme.previewRestore('game',${JSON.stringify(id)})`)
+  assert.equal(preview.replaced.length,1)
+  await js(`window.saveme.restore('game',${JSON.stringify(id)},${JSON.stringify(preview.token)})`)
+  assert.equal(fs.readFileSync(save,'utf8'),'original packaged save')
+  const report = await js('window.saveme.diagnostics()')
+  assert(!JSON.stringify(report).includes(output))
+  await js(`window.saveme.unpinSnapshot('game',${JSON.stringify(id)})`)
+  history = await js(`window.saveme.history('game')`)
+  assert.equal(history.snapshots.find(s => s.id === id).pinned,false)
+  assert(history.snapshots.some(s => s.trigger === 'pre-restore'))
+  await js(`document.querySelectorAll('.nav-item')[1].click()`)
+  await wait(`!!document.querySelector('.game-open')`)
+  await js(`document.querySelector('.game-open').click()`)
+  await wait(`!!document.querySelector('.timeline li')`)
+  fs.writeFileSync(path.join(output,'packaged-detail.png'),(await win.webContents.capturePage()).toPNG())
+  clearTimeout(watchdog)
+  console.log('PASS: testing ASAR, packaged dependencies, real IPC backup/verification/name/pin/preview/restore/unpin/diagnostics, pre-restore copy; isolated profile=' + output)
+  app.quit()
+})().catch(error => { clearTimeout(watchdog); console.error(error); app.exit(1) })

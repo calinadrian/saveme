@@ -4,28 +4,30 @@ const fs = require('node:fs')
 const path = require('node:path')
 const assert = require('node:assert/strict')
 const root = path.resolve(__dirname, '..')
+const theme = process.argv.includes('--light') ? 'light' : 'dark'
 const scale = process.argv.find(a => a.startsWith('--scale='))?.split('=')[1] || '1'
 app.commandLine.appendSwitch('force-device-scale-factor', scale)
-const output = path.join(root, '.tmp', 'ui-refinement', scale)
+const output = path.join(root, '.tmp', 'ui-refinement', theme, scale)
 fs.mkdirSync(output, { recursive: true })
 app.setPath('userData', path.join(output, 'profile'))
 const preload = path.join(output, 'preload.cjs')
 fs.writeFileSync(preload, `
 const { contextBridge } = require('electron');
 let listener, navigation, startup = 1, historyError = true, historyHeld = false, releaseHistory, settingHeld = false, releaseSetting, settingFailure = false, addFailure = true, addHeld = false, releaseAdd, usageFailure = false, usageHeld = false, usageBytes = 5120;
-const calls = { state: 0, settings: [], adds: [], restores: [], connections: [] };
+const calls = { state: 0, settings: [], adds: [], restores: [], connections: [], verified: [], pins: [], names: [], exports: 0 };
 const state = {
- machine: 'Test destination PC', settings: { provider: 'local', localFolder: 'D:/Backups/' + 'Long folder name/'.repeat(8), startAtLogin: false, minimizeToTray: true, notifications: true, autoUpdate: false, retention: { keepLast: 10, keepDaily: 14, keepWeekly: 8 }, extraLibraryFolders: ['D:/Games/' + 'Long folder name/'.repeat(8)] },
+ machine: 'Test destination PC', settings: { appearance: '${theme}', provider: 'local', localFolder: 'D:/Backups/' + 'Long folder name/'.repeat(8), startAtLogin: false, minimizeToTray: true, notifications: true, autoUpdate: false, retention: { keepLast: 10, keepDaily: 14, keepWeekly: 8 }, extraLibraryFolders: ['D:/Games/' + 'Long folder name/'.repeat(8)] },
  provider: { kind: 'local', connected: true, location: 'D:/Backups/' + 'Long folder name/'.repeat(8) + 'SaveMe', configured: { local: true, gdrive: false, onedrive: false } },
  games: Array.from({ length: 60 }, (_, i) => ({ id: 'game-' + i, name: 'Test Game ' + i + (i === 1 ? ' Very Long Edition Name '.repeat(6) : ''), tracked: true, status: 'synced', roots: [{ template: '<winAppData>/Test', resolved: 'C:/Test/' + 'Long path/'.repeat(5) }], sizeBytes: 1024, fileCount: 1, lastSnapshotId: 'current', lastBackupAt: '2026-10-24T17:00:00Z' })),
  activity: [], scanning: false, running: [], queue: [], saveMeBytes: 2048
 };
 const snapshots = [
- { id: 'current', createdAt: '2026-10-24T17:00:00Z', machine: 'Test destination PC', trigger: 'manual', zipBytes: 512 },
- { id: 'older', createdAt: '2026-10-23T17:00:00Z', machine: 'Source gaming PC with a long name', trigger: 'game-exit', zipBytes: 480 }
+ { id: 'older', createdAt: '2026-10-23T17:00:00Z', machine: 'Source gaming PC with a long name', trigger: 'game-exit', zipBytes: 480 },
+ { id: 'current', createdAt: '2026-10-24T17:00:00Z', machine: 'Test destination PC', trigger: 'manual', zipBytes: 512 }
 ];
 const emit = () => listener?.(structuredClone(state));
 contextBridge.exposeInMainWorld('saveme', {
+ initialTheme: '${theme}', onTheme: fn => { fn('${theme}'); return () => {}; },
  state: async () => { calls.state++; if (startup-- > 0) throw Error('Startup test failure'); return structuredClone(state); },
  updateState: async () => { throw Error('Update status offline'); }, onState: fn => { listener = fn; return () => { listener = undefined }; }, onUpdate: () => () => {}, onNavigate: fn => { navigation = fn; return () => {}; },
  artwork: async () => undefined,
@@ -34,7 +36,14 @@ contextBridge.exposeInMainWorld('saveme', {
  addCustomGame: async (name, folder) => { calls.adds.push({ name, folder }); if (addHeld) await new Promise(resolve => { releaseAdd = resolve }); if (addFailure) { addFailure = false; throw Error('Folder unavailable'); } },
  pickFolder: async () => 'D:/Synthetic saves', openSaveFolder: async () => {}, scan: async () => {}, backupNow: async () => {}, backupAll: async () => {},
  setTracked: async (id, value) => { state.games.find(g => g.id === id).tracked = value; emit(); },
- restore: async (id, version) => { calls.restores.push({ id, version }); }, keepLocal: async () => {},
+ restore: async (id, version, token) => { calls.restores.push({ id, version, token }); }, keepLocal: async () => {},
+ previewRestore: async () => ({ token: 'a'.repeat(64), added: ['<winAppData>/Test/added.sav'], replaced: ['<winAppData>/Test/current.sav'], unchanged: [], extra: ['<winAppData>/Test/extra-kept.sav'] }),
+ verifySnapshot: async (id, version) => { calls.verified.push(version); const s = snapshots.find(s => s.id === version); s.verification = { status: calls.verified.length === 1 ? 'corrupt' : 'verified', checkedAt: new Date().toISOString() }; return s.verification; },
+ pinSnapshot: async (id, version) => { calls.pins.push(version); snapshots.find(s => s.id === version).pinned = true; },
+ unpinSnapshot: async (id, version) => { snapshots.find(s => s.id === version).pinned = false; },
+ renameSnapshot: async (id, version, label) => { calls.names.push(label); snapshots.find(s => s.id === version).label = label; },
+ diagnostics: async () => ({ format: 1, generatedAt: new Date().toISOString(), runtime: { saveme: 'test' }, storage: { connected: true, usageStatus: 'ready' }, health: { games: 60, queued: 0 }, recentEvents: [] }),
+ exportDiagnostics: async () => { calls.exports++; return true; },
  connect: async (...args) => { calls.connections.push(args); state.provider.connected = true; state.provider.kind = 'local'; state.settings.provider = 'local'; emit(); }, configureAndConnect: async () => {},
  setRemoteFolder: async folder => { state.provider.location = folder; emit(); }, refreshQuota: async () => {}, disconnect: async () => {}, openUrl: async () => {}, openLicenses: async () => {}, checkForUpdate: async () => {},
  refreshBackupUsage: async () => { if (usageHeld) { state.backupUsage = { status: 'loading', completed: 0, total: 39 }; emit(); await new Promise(() => {}); } state.backupUsage = usageFailure ? { status: 'unavailable' } : { status: 'ready', bytes: usageBytes }; emit(); },
@@ -55,6 +64,7 @@ contextBridge.exposeInMainWorld('saveme', {
   if (action === 'onboarding') { state.provider.connected = false; state.settings.provider = undefined; emit(); }
   if (action === 'empty') { state.games = []; emit(); }
   if (action === 'disconnected') { state.provider.connected = false; emit(); }
+  if (action === 'progress') { state.operation = value ? { kind: 'backup', gameId: 'game-0', progress: { stage: 'uploading', completed: 1024, total: 4096, unit: 'bytes' } } : undefined; emit(); }
  }
 });`)
 
@@ -115,6 +125,25 @@ app.whenReady().then(async () => {
   await key('Return')
   await wait(`!document.querySelector('[role="dialog"]')`)
   assert.equal((await js(`window.saveme.test('calls')`)).restores.length, 0)
+  // New recovery controls use real React interactions with isolated synthetic storage.
+  await js(`document.querySelector('.snapshot-actions summary').click()`)
+  await click('Verify backup')
+  await wait(`document.querySelector('.history-feedback')?.textContent.includes('verification failed')`)
+  await js(`document.querySelector('.snapshot-actions summary').click()`)
+  await click('Verify backup')
+  await wait(`document.querySelector('.history-feedback')?.textContent.includes('Backup verified')`)
+  await js(`document.querySelector('.snapshot-actions summary').click()`)
+  await click('Pin version')
+  await wait(`!!document.querySelector('.snapshot-pin')`)
+  await js(`document.querySelector('.snapshot-actions summary').click()`)
+  await click('Name version')
+  await fill('#version-name', 'Before the final boss')
+  await key('Return')
+  await wait(`document.querySelector('.tl-main strong')?.textContent.includes('Before the final boss')`)
+  await js(`window.saveme.test('progress', true)`)
+  await wait(`document.querySelector('.operation-status')?.textContent.includes('Uploading')`)
+  assert.equal(await js(`document.querySelector('progress').getAttribute('value')`), '1024')
+  await js(`window.saveme.test('progress', false)`)
   await click('Games')
   await wait(`!!document.querySelector('.game-open')`)
   assert.equal(await js(`document.activeElement.dataset.game`), 'game-8')
@@ -201,6 +230,13 @@ app.whenReady().then(async () => {
   await win.webContents.debugger.sendCommand('Accessibility.enable')
   const tree = await win.webContents.debugger.sendCommand('Accessibility.getFullAXTree')
   assert(tree.nodes.some(n => n.role?.value === 'switch' && n.name?.value === 'Start with Windows'))
+  await js(`document.querySelectorAll('.settings-nav button')[4].click()`)
+  await click('Export diagnostics')
+  await wait(`!!document.querySelector('.modal')`)
+  assert.match(await js(`document.querySelector('.modal').textContent`), /Credentials, accounts, personal paths/)
+  await click('Save report…')
+  await wait(`document.querySelector('.modal [role="status"]')?.textContent.includes('saved')`)
+  await click('Close')
   for (const [width, height, zoom] of [[1100, 780, 1], [820, 580, 1], [820, 580, 2]]) {
     win.setSize(width, height); win.webContents.setZoomFactor(zoom)
     await nav(0); await fit('Overview ' + width + '/' + zoom)

@@ -8,6 +8,9 @@ export function protection(state: AppState): { kind: ProtectionKind; label: stri
   const name = state.games.find(g => g.id === state.operation?.gameId)?.name ?? 'game saves'
   if (state.operation?.kind === 'storage') return { kind: 'storage', label: 'Changing backup storage…' }
   if (state.operation?.kind === 'restore') return { kind: 'restoring', label: `Restoring ${name}…` }
+  if (state.operation?.kind === 'verify') return { kind: 'scanning', label: `Verifying ${name} backup…` }
+  if (state.operation?.kind === 'preview') return { kind: 'scanning', label: `Comparing ${name} saves…` }
+  if (state.operation?.kind === 'history') return { kind: 'storage', label: 'Updating backup history…' }
   if (!state.provider.connected) return { kind: 'paused', label: 'Backups are paused' }
   if (state.operation?.kind === 'backup') return { kind: 'uploading', label: `Backing up ${name}…` }
   const attention = tracked.filter(g => g.status === 'error' || g.status === 'cloud-newer').length
